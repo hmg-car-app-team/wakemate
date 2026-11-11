@@ -288,4 +288,23 @@ class RealShelterDataTest {
         val t = com.hmgcarapp.wakemate.domain.WakeText.s3(85, n, false, null, false)
         assertTrue(t, t.contains("가까운 휴게소, 강릉 강릉 방면, 하행, 약 2.0킬로미터예요.") && t.contains("진행 방향은 반영하지 않으니 방향을 확인하세요") && t.contains("공공데이터 스냅샷") && t.contains("실시간 정보는 아니에요") && !t.contains("시연용"))
     }
+
+    @Test fun voice_headingApplied_saysAheadBasis_notIgnored() {
+        val n = com.hmgcarapp.wakemate.domain.NearShelter(rests.shelters[0], 2.0)
+        val t = com.hmgcarapp.wakemate.domain.WakeText.s3(85, n, false, null, false, headingApplied = true)
+        assertTrue(t, t.contains("진행 방향 앞쪽 시설 기준이에요. 도로 방향은 직접 확인하세요.") && !t.contains("반영하지 않으니") && t.contains("공공데이터 스냅샷"))
+    }
+
+    @Test fun usableHeading_onlyWhenDrivingFiniteNonZero() {
+        assertNull(ShelterRepo.usableHeading(90f, 0f))            // 정차
+        assertNull(ShelterRepo.usableHeading(90f, null))          // 속도 미상
+        assertNull(ShelterRepo.usableHeading(0f, 80f))            // 정확히 0.0 은 방위 미확인과 구분 불가
+        assertNull(ShelterRepo.usableHeading(Float.NaN, 80f))
+        assertNull(ShelterRepo.usableHeading(null, 80f))
+        assertNull(ShelterRepo.usableHeading(361f, 80f)); assertNull(ShelterRepo.usableHeading(-1f, 80f))
+        assertNull(ShelterRepo.usableHeading(90f, 9.99f))         // 속도 임계 바로 아래
+        assertEquals(90f, ShelterRepo.usableHeading(90f, 10f)!!, 0f) // 임계 경계 포함
+        assertEquals(360f, ShelterRepo.usableHeading(360f, 80f)!!, 0f)
+        assertEquals(0.5f, ShelterRepo.usableHeading(0.5f, 80f)!!, 0f)
+    }
 }

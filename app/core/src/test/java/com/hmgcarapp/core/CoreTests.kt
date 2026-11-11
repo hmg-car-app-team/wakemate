@@ -167,6 +167,7 @@ class CoreTests {
             uxSource = object : UxRestrictionSource { override fun requiresDistractionOptimization(intervalMs: Long) = flowOf<Boolean?>(false) },
             locationSource = object : LocationSource { override fun locations() = flowOf(GeoPoint(1.0, 2.0)) },
             hub = hub,
+            ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined, // 실제 IO 스레드 전환 제거(타이밍 비결정성 방지)
         )
         assertEquals(0f, sig.speedKmh.first().value!!, 0.01f)
         assertEquals(DriveState.PARKED, sig.driveState.first().state)

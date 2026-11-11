@@ -96,7 +96,7 @@ sealed interface WakeEvent {
     data class DriveChanged(val driving: Boolean) : WakeEvent
     /** 휴식 감지: 이번 깨우기 에피소드를 끝낸다. */
     data object Rested : WakeEvent
-    data class ShelterPlanned(val id: Long, val near: NearShelter?, val plan: RoutePlan?, val sampleData: Boolean, val locationKnown: Boolean = true) : WakeEvent
+    data class ShelterPlanned(val id: Long, val near: NearShelter?, val plan: RoutePlan?, val sampleData: Boolean, val locationKnown: Boolean = true, val headingApplied: Boolean = false) : WakeEvent
     data class VoiceSpoken(val id: Long, val ok: Boolean) : WakeEvent
     data class VoiceHeard(val id: Long, val purpose: Purpose, val heard: Heard, val responseMs: Long) : WakeEvent
     data class HvacApplied(val id: Long, val results: List<ItemResult>, val planned: HvacTargets, val connected: Boolean, val baseTempC: Float? = null, val ventOnly: Boolean = false) : WakeEvent
@@ -155,7 +155,7 @@ object WakeText {
     /** 0.05km(50m) 미만이면 '바로 근처예요', 그 외 '약 N킬로미터예요'(소수 한 자리). */
     fun distanceSpeech(km: Double): String = if (km < 0.05) "바로 근처예요" else "약 ${"%.1f".format(km)}킬로미터예요"
 
-    fun s3(score: Int, near: NearShelter?, sample: Boolean, plan: RoutePlan?, voiceReply: Boolean, locationKnown: Boolean = true): String {
+    fun s3(score: Int, near: NearShelter?, sample: Boolean, plan: RoutePlan?, voiceReply: Boolean, locationKnown: Boolean = true, headingApplied: Boolean = false): String {
         if (!locationKnown) return "졸음 위험지수 ${score}점으로 매우 높아요. 현재 위치를 확인하지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
         if (near == null) return "졸음 위험지수 ${score}점으로 매우 높아요. 근처 졸음쉼터 정보를 찾지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
         val dist = distanceSpeech(near.distanceKm)
@@ -163,7 +163,7 @@ object WakeText {
         else {
             val dir = near.shelter.directionLabel.let { if (it.isEmpty()) "" else ", $it" }
             "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 ${near.shelter.kindLabel}, ${near.shelter.spokenName}$dir, $dist. " +
-                "진행 방향은 반영하지 않으니 방향을 확인하세요. 공공데이터 스냅샷이라 실시간 정보는 아니에요."
+                (if (headingApplied) "진행 방향 앞쪽 시설 기준이에요. 도로 방향은 직접 확인하세요." else "진행 방향은 반영하지 않으니 방향을 확인하세요.") + " 공공데이터 스냅샷이라 실시간 정보는 아니에요."
         }
         return head + if (voiceReply && plan != null) " ${plan.ask}" else " 안전한 곳에서 쉬어 가세요."
     }
@@ -289,14 +289,14 @@ object WakeFlow {
     private fun practice(s: WakeState): Pair<WakeState, List<WakeEffect>> {
         val id = s.seq + 1
         val word = Quiz.pick(s.quizIdx)
-        val a = Alert(id, Stage.S1, Status.SPEAKING, "퀴즈 연습", practice = true, quizWord = word, after = Purpose.QUIZ)
+        val a = Alert(id, Stage.S1, Status.SPEAKING, "끝말잇기 퀴즈를 시작해요", practice = true, quizWord = word, after = Purpose.QUIZ)
         return s.copy(seq = id, alert = a, quizIdx = s.quizIdx + 1) to listOf(WakeEffect.CancelVoice, WakeEffect.Speak(id, Quiz.question(word)))
     }
 
     private fun planned(s: WakeState, e: WakeEvent.ShelterPlanned): Pair<WakeState, List<WakeEffect>> {
         val a = s.alert ?: return s to NONE
         if (a.id != e.id || a.finished) return s to NONE
-        val text = WakeText.s3(a.score, e.near, e.sampleData, e.plan, s.voiceReply, e.locationKnown)
+        val text = WakeText.s3(a.score, e.near, e.sampleData, e.plan, s.voiceReply, e.locationKnown, e.headingApplied)
         val after = if (e.near != null && e.plan != null && s.voiceReply) Purpose.CONFIRM else null
         return s.copy(alert = a.copy(status = Status.SPEAKING, shelter = e.near, plan = e.plan, sampleData = e.sampleData, noLocation = !e.locationKnown, after = after)) to listOf(WakeEffect.Speak(e.id, text))
     }

@@ -81,8 +81,8 @@ class SourceRulesTest {
 
 class ShelterNoticeTest {
     @org.junit.Test fun fictionalSentenceOnlyForSampleData() {
-        org.junit.Assert.assertEquals("직선거리 기준이며 실제 도로 거리·진행 방향은 반영하지 않아요. 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요.", com.hmgcarapp.wakemate.ui.shelterNotice(true))
-        org.junit.Assert.assertEquals("직선거리 기준이며 실제 도로 거리·진행 방향은 반영하지 않아요. 실시간 정보가 아니에요.", com.hmgcarapp.wakemate.ui.shelterNotice(false))
+        org.junit.Assert.assertEquals("직선거리 기준이며 실제 도로 거리는 반영하지 않아요. 주행 중 10km/h 이상이고 방위가 유효하면 진행 방향 앞쪽 시설 위주로, 아니면 방향은 반영하지 않아요. 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요.", com.hmgcarapp.wakemate.ui.shelterNotice(true))
+        org.junit.Assert.assertEquals("직선거리 기준이며 실제 도로 거리는 반영하지 않아요. 주행 중 10km/h 이상이고 방위가 유효하면 진행 방향 앞쪽 시설 위주로, 아니면 방향은 반영하지 않아요. 실시간 정보가 아니에요.", com.hmgcarapp.wakemate.ui.shelterNotice(false))
         org.junit.Assert.assertEquals("시연용 가상 샘플 데이터", com.hmgcarapp.wakemate.ui.shelterBadge(true, "2026-11-11"))
         org.junit.Assert.assertEquals("실시간 아님 · 기준일 2026-02-25", com.hmgcarapp.wakemate.ui.shelterBadge(false, "2026-02-25"))
         org.junit.Assert.assertTrue("배지는 말줄임 없이 들어가도록 짧게", com.hmgcarapp.wakemate.ui.shelterBadge(false, "2026-02-25").length <= 24)

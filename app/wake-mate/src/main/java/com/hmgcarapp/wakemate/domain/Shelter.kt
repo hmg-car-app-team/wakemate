@@ -100,6 +100,16 @@ object ShelterRepo {
         return diff <= FORWARD_HALF_ANGLE_DEG
     }
 
+    /** 이 속도(km/h) 이상일 때만 heading 을 전방 필터에 쓴다. */
+    const val HEADING_MIN_SPEED_KMH = 10f
+
+    /**
+     * 전방 필터에 쓸 수 있는 heading 만 돌려준다. 플랫폼은 방위를 모를 때 0.0(북)을 주므로 정확히 0.0 은 모호해 쓰지 않는다.
+     * 주행 중(속도 [HEADING_MIN_SPEED_KMH] 이상)이고 유한값이며 0 초과 360 이하일 때만 유효, 아니면 null(필터 없음).
+     */
+    fun usableHeading(heading: Float?, speedKmh: Float?): Float? =
+        heading?.takeIf { it.isFinite() && it > 0f && it <= 360f && speedKmh != null && speedKmh.isFinite() && speedKmh >= HEADING_MIN_SPEED_KMH }
+
     /** 가까운 순 [limit] 개(직선거리 근사; 실제 도로 거리는 반영하지 않는다. [headingDeg] 가 있으면 상대 방위 ±100° 밖 후방 시설은 제외, 없으면 필터 없음). 동거리면 id 순. */
     fun nearest(origin: LatLon, shelters: List<Shelter>, limit: Int = 3, maxKm: Double = 100.0, headingDeg: Float? = null): List<NearShelter> =
         shelters.map { NearShelter(it, haversineKm(origin, it.pos)) }.filter { it.distanceKm <= maxKm }

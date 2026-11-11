@@ -17,6 +17,7 @@ import com.hmgcarapp.core.vehicle.CarPropertyVehicleSignals
 import com.hmgcarapp.core.vehicle.ReflectiveCarPropertyReader
 import com.hmgcarapp.core.vehicle.SignalReading
 import com.hmgcarapp.core.vehicle.VehicleSignals
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOn
@@ -39,19 +40,21 @@ class CarSignals(
     private val locationSource: LocationSource,
     val hub: SimulationHub = SimulationHub.shared,
     private val pollMs: Long = 1000L,
+    /** 리플렉션 바인더 호출용 디스패처. 기본 IO, 테스트는 결정적 디스패처를 주입한다. */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /** 차속 km/h (SignalReading: 실패 시 value=null + reason). */
     @OptIn(ExperimentalCoroutinesApi::class)
     val speedKmh: Flow<SignalReading<Float>> =
         hub.state.map { it.enabled && it.speedKmh != null }.distinctUntilChanged().flatMapLatest { simulated ->
-            if (simulated) hub.state.map { SignalReading.ok(it.speedKmh!!) } else vehicle.speedKmh(pollMs).flowOn(Dispatchers.IO) // 리플렉션 바인더 호출을 Main 밖에서
+            if (simulated) hub.state.map { SignalReading.ok(it.speedKmh!!) } else vehicle.speedKmh(pollMs).flowOn(ioDispatcher) // 리플렉션 바인더 호출을 Main 밖에서
         }
 
     val gear: Flow<Gear> = combine(gearSource.gear().onStart { emit(Gear.UNKNOWN) }, hub.state) { real, sim ->
         if (sim.enabled && sim.gear != null) sim.gear else real
     }.distinctUntilChanged()
 
-    private val ux: Flow<Boolean?> = uxSource.requiresDistractionOptimization(pollMs).flowOn(Dispatchers.IO).onStart { emit(null) }.distinctUntilChanged()
+    private val ux: Flow<Boolean?> = uxSource.requiresDistractionOptimization(pollMs).flowOn(ioDispatcher).onStart { emit(null) }.distinctUntilChanged()
 
     val driveState: Flow<DriveSnapshot> =
         combine(speedKmh, gear, ux, hub.state) { speed, g, u, sim ->

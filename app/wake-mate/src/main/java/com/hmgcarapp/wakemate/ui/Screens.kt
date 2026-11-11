@@ -113,7 +113,7 @@ private fun DrivingView(c: AppController, s: UiState, notice: String?) {
                 Txt(a.status, PleosTheme.typography.bodyMedium, modifier = Modifier.testTag("banner_status"))
                 a.detail?.let { Txt(it, PleosTheme.typography.bodyMedium, secondary = true, modifier = Modifier.testTag("banner_detail")) }
             } else {
-                Txt("연속 주행 ${s.drivingMin}분", PleosTheme.typography.bodyLarge, secondary = true, modifier = Modifier.testTag("driving_idle"))
+                Txt("쉬지 않은 주행 ${s.drivingMin}분", PleosTheme.typography.bodyLarge, secondary = true, modifier = Modifier.testTag("driving_idle"))
                 notice?.let { Txt(it, PleosTheme.typography.bodyMedium, secondary = true, modifier = Modifier.testTag("driving_notice")) }
             }
             if (s.sim.active) Txt("시연 신호가 섞여 있어요", PleosTheme.typography.labelMedium, secondary = true)
@@ -179,7 +179,7 @@ private fun StatusPage(c: AppController, s: UiState) {
         Txt("개인 보정 +${s.p.calibration.offset} (졸리지 않다고 답한 횟수 ${s.p.calibration.feedbackCount}회)", PleosTheme.typography.labelMedium, secondary = true)
     }
     PleosPanel(Modifier.fillMaxWidth(), title = "지금") {
-        Txt("연속 주행 ${s.drivingMin}분 · 내기순환 ${s.recircMin?.let { "${it}분" } ?: "꺼짐/미확인"}", secondary = true)
+        Txt("쉬지 않은 주행 ${s.drivingMin}분 · 내기순환 ${s.recircMin?.let { "${it}분" } ?: "꺼짐/미확인"}", secondary = true)
         Txt(if (s.steerReady) "조향 패턴 수집 중(정상)" else "조향 패턴은 40km/h 이상으로 30초 이상 달려야 판단해요", PleosTheme.typography.labelMedium, secondary = true)
         Row(horizontalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
             PleosButton("졸리지 않아요", onClick = { c.notSleepy() }, hierarchy = PleosButtonHierarchy.Secondary, modifier = Modifier.testTag("btn_not_sleepy"))
@@ -204,7 +204,7 @@ private fun NaviLine(c: AppController) {
 
 /** 쉼터 화면 안내 문장: 직선거리 안내는 항상, '가상 데이터' 문장은 샘플 데이터일 때만(배지와 같은 조건). */
 internal fun shelterNotice(sample: Boolean): String =
-    "직선거리 기준이며 실제 도로 거리·진행 방향은 반영하지 않아요." + if (sample) " 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요." else " 실시간 정보가 아니에요."
+    "직선거리 기준이며 실제 도로 거리는 반영하지 않아요. 주행 중 10km/h 이상이고 방위가 유효하면 진행 방향 앞쪽 시설 위주로, 아니면 방향은 반영하지 않아요." + if (sample) " 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요." else " 실시간 정보가 아니에요."
 
 /** 배지 문구(한 줄 배지라 짧게): 샘플이면 '시연용 가상 샘플 데이터', 실데이터면 실시간 아님(맨 앞)·데이터 기준일. 좁은 폭에서 말줄임되지 않게 출처·수집일은 [shelterSourceLine] 로 줄을 나눈다. */
 internal fun shelterBadge(sample: Boolean, asOf: String): String =

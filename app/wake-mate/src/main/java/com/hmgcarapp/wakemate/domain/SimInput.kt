@@ -21,6 +21,9 @@ object SimInput {
 
     fun speed(raw: Any?): Float? = number(raw)?.toFloat()?.takeIf { it in 0f..300f }
 
+    /** 진행 방향(도) 0..360. 범위 밖·비유한·비숫자는 null. */
+    fun heading(raw: Any?): Float? = number(raw)?.toFloat()?.takeIf { it in 0f..360f }
+
     fun steer(raw: Any?): Float? = number(raw)?.toFloat()?.takeIf { it in -540f..540f }
 
     fun stage(raw: Any?): Stage? = number(raw)?.toInt()?.let { n -> Stage.entries.firstOrNull { it.n == n && n in 1..3 } }

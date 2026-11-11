@@ -161,4 +161,9 @@ class SimAndStoreTest {
         assertEquals(Persisted(settings = full.settings), after)
         assertTrue(after.rests.isEmpty() && after.calibration == Calibration() && after.drivingMs == 0L)
     }
+
+    @Test fun simInputHeading() {
+        assertEquals(90f, SimInput.heading(90.0)!!, 0f); assertEquals(0f, SimInput.heading(0)!!, 0f); assertEquals(360f, SimInput.heading(360)!!, 0f)
+        assertNull(SimInput.heading(-1)); assertNull(SimInput.heading(361)); assertNull(SimInput.heading(Double.NaN)); assertNull(SimInput.heading("90")); assertNull(SimInput.heading(null))
+    }
 }

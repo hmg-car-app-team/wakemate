@@ -14,7 +14,7 @@ import com.hmgcarapp.wakemate.domain.SimInput
  *  패턴      --es pattern drowsy|normal|off      (조향·속도·기어 합성 신호; 졸음 패턴은 약 1~2분 뒤 지수에 반영)
  *  시각      --ei hour 3 [--ei minute 30]  (--ei hour -1 로 해제)
  *  주행·내기 --ei drivemin 90   --ei recircmin 30
- *  신호      --ef speed 80  --es gear D|P  --ef steer 7.5  --ef lat 37.5 --ef lon 127.03  --ez hub true|false
+ *  신호      --ef speed 80  --es gear D|P  --ef steer 7.5  --ef lat 37.5 --ef lon 127.03 [--ef heading 90(0~360, lat/lon 과 함께)]  --ez hub true|false
  *  단계      --ei stage 1|2|3     --es heard "응"     --ez rest true     --ez reset true
  */
 internal object SimReceiver {
@@ -45,7 +45,9 @@ internal object SimReceiver {
                 if (i.hasExtra("drivemin")) SimInput.minutes(raw("drivemin"))?.let { c.simAddDrive(it) } ?: bad("drivemin")
                 if (i.hasExtra("recircmin")) SimInput.minutes(raw("recircmin"))?.let { c.simRecirc(it) } ?: bad("recircmin")
                 val lat = SimInput.number(raw("lat")); val lon = SimInput.number(raw("lon"))
-                val loc = if (lat != null && lon != null && lat in -90.0..90.0 && lon in -180.0..180.0) GeoPoint(lat, lon) else null
+                val heading = if (i.hasExtra("heading")) SimInput.heading(raw("heading")).also { if (it == null) bad("heading") } else null
+                val loc = if (lat != null && lon != null && lat in -90.0..90.0 && lon in -180.0..180.0) GeoPoint(lat, lon, heading) else null
+                if (heading != null && loc == null) HmgLog.w("WakeMate", "SIM 무시: heading 은 lat/lon 과 함께 보내야 함")
                 if ((i.hasExtra("lat") || i.hasExtra("lon")) && loc == null) bad("lat/lon")
                 val enabled = if (i.hasExtra("hub")) i.getBooleanExtra("hub", false) else null
                 val speed = if (i.hasExtra("speed")) SimInput.speed(raw("speed")).also { if (it == null) bad("speed") } else null
