@@ -206,10 +206,14 @@ private fun NaviLine(c: AppController) {
 internal fun shelterNotice(sample: Boolean): String =
     "직선거리 기준이며 실제 도로 거리·진행 방향은 반영하지 않아요." + if (sample) " 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요." else " 실시간 정보가 아니에요."
 
-/** 배지 문구: 샘플이면 기존 '시연용 가상 샘플 데이터', 실데이터면 실시간 아님(맨 앞)·출처·데이터 기준일·수집일. */
-internal fun shelterBadge(sample: Boolean, asOf: String, collectedAt: String = ""): String =
+/** 배지 문구(한 줄 배지라 짧게): 샘플이면 '시연용 가상 샘플 데이터', 실데이터면 실시간 아님(맨 앞)·데이터 기준일. 좁은 폭에서 말줄임되지 않게 출처·수집일은 [shelterSourceLine] 로 줄을 나눈다. */
+internal fun shelterBadge(sample: Boolean, asOf: String): String =
     if (sample) "시연용 가상 샘플 데이터"
-    else "실시간 아님 · 공공데이터 스냅샷 · 데이터 기준일 ${asOf.ifEmpty { "미상" }} · 수집일 ${collectedAt.ifEmpty { "미상" }} · 한국도로공사"
+    else "실시간 아님 · 기준일 ${asOf.ifEmpty { "미상" }}"
+
+/** 배지 아래 줄(줄바꿈 가능): 실데이터일 때 출처·수집일. 샘플이면 null. */
+internal fun shelterSourceLine(sample: Boolean, collectedAt: String): String? =
+    if (sample) null else "공공데이터 스냅샷 · 수집일 ${collectedAt.ifEmpty { "미상" }} · 한국도로공사"
 
 @Composable
 private fun ShelterPage(c: AppController, s: UiState) {
@@ -217,7 +221,8 @@ private fun ShelterPage(c: AppController, s: UiState) {
         val ds = s.dataset
         if (ds == null) Txt("쉼터 데이터를 불러오지 못했어요", secondary = true)
         else {
-            PleosStatusBadge(shelterBadge(ds.sample, ds.asOf, ds.collectedAt), PleosStatus.Autonomous)
+            PleosStatusBadge(shelterBadge(ds.sample, ds.asOf), PleosStatus.Autonomous)
+            shelterSourceLine(ds.sample, ds.collectedAt)?.let { Txt(it, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("shelter_source")) }
             Txt(shelterNotice(ds.sample), PleosTheme.typography.labelMedium, secondary = true)
         }
         NaviLine(c)

@@ -80,7 +80,7 @@ class WakeRunner(
                 val s = ui()
                 val ds = s.dataset
                 val origin = s.origin?.takeIf { LocationFreshness.isFresh(s.originAtMs, monoClock()) }
-                val near = origin?.let { o -> ds?.let { ShelterRepo.nearest(o, it.shelters, 1).firstOrNull() } }
+                val near = origin?.let { o -> ds?.let { ShelterRepo.nearest(o, it.shelters, 1, headingDeg = s.originHeading).firstOrNull() } }
                 dispatch(WakeEvent.ShelterPlanned(fx.id, near, if (near != null) plan else null, ds?.sample ?: true, locationKnown = origin != null))
             }
             is WakeEffect.ApplyHvac -> {

@@ -165,6 +165,30 @@ class HvacShelterTest {
         assertTrue(ShelterRepo.nearest(o, listOf(sh("far", 39.0, 127.0)), 3, maxKm = 100.0).isEmpty())
     }
 
+    @Test fun nearest_forwardFilter_boundariesAndNoHeadingFallback() {
+        val o = LatLon(37.5, 127.0)
+        val north = sh("n", 37.55, 127.0)      // 방위 ≈ 0°
+        val south = sh("s", 37.45, 127.0)      // 방위 ≈ 180°
+        val all = listOf(north, south)
+        assertEquals(listOf("n", "s"), ShelterRepo.nearest(o, all, 3).map { it.shelter.id })                       // 방향 없음: 필터 없음
+        assertEquals(listOf("n", "s"), ShelterRepo.nearest(o, all, 3, headingDeg = null).map { it.shelter.id })
+        assertEquals(listOf("n"), ShelterRepo.nearest(o, all, 3, headingDeg = 0f).map { it.shelter.id })           // 북진: 남쪽 후방 제외
+        assertEquals(listOf("s"), ShelterRepo.nearest(o, all, 3, headingDeg = 180f).map { it.shelter.id })
+        assertEquals(listOf("n"), ShelterRepo.nearest(o, all, 3, headingDeg = 360f).map { it.shelter.id })         // 360 = 북
+        // 북쪽 시설: heading 100 -> 상대 100°(경계, 포함) / 101 -> 제외 / 260 -> 상대 100°(포함) / 259 -> 제외(래핑)
+        assertTrue(ShelterRepo.isAhead(o, north.pos, 99.9f))
+        assertFalse(ShelterRepo.isAhead(o, north.pos, 101f))
+        assertTrue(ShelterRepo.isAhead(o, north.pos, 260.1f))
+        assertFalse(ShelterRepo.isAhead(o, north.pos, 259f))
+        // 잘못된 방향값은 방향 정보 없음으로 취급
+        for (bad in listOf(Float.NaN, -1f, 361f, Float.POSITIVE_INFINITY)) assertTrue(ShelterRepo.isAhead(o, south.pos, bad))
+        // 아주 가까운 시설(0.05km 미만)은 방위가 무의미해 유지
+        assertTrue(ShelterRepo.isAhead(o, LatLon(37.50001, 127.0), 180f))
+        // 필터 후에도 거리순·limit 유지, spokenName/directionLabel 은 그대로
+        val mix = listOf(sh("s1", 37.49, 127.0), sh("n2", 37.53, 127.0), sh("n1", 37.51, 127.0))
+        assertEquals(listOf("n1", "n2"), ShelterRepo.nearest(o, mix, 3, headingDeg = 10f).map { it.shelter.id })
+    }
+
     @Test fun bundledSampleAsset_parsesAndIsLabeledAsFictional() {
         val f = File("src/main/assets/rest_shelters_sample.json")
         assertTrue("assets 파일을 찾을 수 없음: ${f.absolutePath}", f.exists())

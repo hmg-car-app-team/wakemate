@@ -79,8 +79,30 @@ object ShelterRepo {
         return 2 * r * asin(sqrt(h))
     }
 
-    /** 가까운 순 [limit] 개(직선거리 근사; 실제 도로 거리·진행 방향은 반영하지 않는다). 동거리면 id 순. */
-    fun nearest(origin: LatLon, shelters: List<Shelter>, limit: Int = 3, maxKm: Double = 100.0): List<NearShelter> =
+    /** 전방 필터 기준: 진행 방향 대비 상대 방위가 이 값(도)을 넘으면 후방으로 보고 제외한다(경계값 포함은 유지). */
+    const val FORWARD_HALF_ANGLE_DEG = 100.0
+
+    /** 초기 방위(도, 0=북, 시계방향 0..360). */
+    fun bearingDeg(a: LatLon, b: LatLon): Double {
+        val p1 = Math.toRadians(a.lat); val p2 = Math.toRadians(b.lat); val dl = Math.toRadians(b.lon - a.lon)
+        val y = sin(dl) * cos(p2); val x = cos(p1) * sin(p2) - sin(p1) * cos(p2) * cos(dl)
+        return (Math.toDegrees(kotlin.math.atan2(y, x)) + 360.0) % 360.0
+    }
+
+    /**
+     * 진행 방향 전방 여부. [headingDeg] 가 null·비유한·범위(0..360) 밖이면 방향 정보 없음으로 보고 항상 true(기존 동작).
+     * 거의 같은 지점(0.05km 미만)은 방위가 무의미하므로 true.
+     */
+    fun isAhead(origin: LatLon, target: LatLon, headingDeg: Float?, distanceKm: Double = haversineKm(origin, target)): Boolean {
+        if (headingDeg == null || !headingDeg.isFinite() || headingDeg < 0f || headingDeg > 360f) return true
+        if (distanceKm < 0.05) return true
+        val diff = kotlin.math.abs(((bearingDeg(origin, target) - headingDeg + 540.0) % 360.0) - 180.0)
+        return diff <= FORWARD_HALF_ANGLE_DEG
+    }
+
+    /** 가까운 순 [limit] 개(직선거리 근사; 실제 도로 거리는 반영하지 않는다. [headingDeg] 가 있으면 상대 방위 ±100° 밖 후방 시설은 제외, 없으면 필터 없음). 동거리면 id 순. */
+    fun nearest(origin: LatLon, shelters: List<Shelter>, limit: Int = 3, maxKm: Double = 100.0, headingDeg: Float? = null): List<NearShelter> =
         shelters.map { NearShelter(it, haversineKm(origin, it.pos)) }.filter { it.distanceKm <= maxKm }
+            .filter { isAhead(origin, it.shelter.pos, headingDeg, it.distanceKm) }
             .sortedWith(compareBy({ it.distanceKm }, { it.shelter.id })).take(limit)
 }

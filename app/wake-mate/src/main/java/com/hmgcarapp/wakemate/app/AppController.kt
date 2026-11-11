@@ -126,7 +126,7 @@ class AppController(
         scope.launch {
             // 위치는 가까운 쉼터 계산에만 쓰고 저장·로그하지 않는다.
             signals.location.catch { HmgLog.w("Location", "flow 실패 $it") }.collect { g: GeoPoint ->
-                _state.update { it.copy(origin = LatLon(g.latitude, g.longitude), originAtMs = monoClock()) }
+                _state.update { it.copy(origin = LatLon(g.latitude, g.longitude), originAtMs = monoClock(), originHeading = g.heading) }
                 refreshNearby()
             }
         }
@@ -162,7 +162,7 @@ class AppController(
     private fun refreshNearby() {
         _state.update { st ->
             val o = st.origin; val ds = st.dataset
-            st.copy(nearby = if (o != null && ds != null) ShelterRepo.nearest(o, ds.shelters, 3) else emptyList())
+            st.copy(nearby = if (o != null && ds != null) ShelterRepo.nearest(o, ds.shelters, 3, headingDeg = st.originHeading) else emptyList())
         }
     }
 

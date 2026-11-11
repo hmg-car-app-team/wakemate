@@ -28,6 +28,7 @@ data class UiState(
     val hvac: HvacSnapshot = HvacSnapshot(),
     val origin: LatLon? = null,
     val originAtMs: Long? = null,
+    val originHeading: Float? = null,
     val nearby: List<NearShelter> = emptyList(),
     val dataset: ShelterDataset? = null,
     val drivingMin: Int = 0,
