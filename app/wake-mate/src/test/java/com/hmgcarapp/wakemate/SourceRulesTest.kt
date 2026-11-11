@@ -82,6 +82,15 @@ class SourceRulesTest {
 class ShelterNoticeTest {
     @org.junit.Test fun fictionalSentenceOnlyForSampleData() {
         org.junit.Assert.assertEquals("직선거리 기준이며 실제 도로 거리·진행 방향은 반영하지 않아요. 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요.", com.hmgcarapp.wakemate.ui.shelterNotice(true))
-        org.junit.Assert.assertEquals("직선거리 기준이며 실제 도로 거리·진행 방향은 반영하지 않아요.", com.hmgcarapp.wakemate.ui.shelterNotice(false))
+        org.junit.Assert.assertEquals("직선거리 기준이며 실제 도로 거리·진행 방향은 반영하지 않아요. 실시간 정보가 아니에요.", com.hmgcarapp.wakemate.ui.shelterNotice(false))
+        org.junit.Assert.assertEquals("시연용 가상 샘플 데이터", com.hmgcarapp.wakemate.ui.shelterBadge(true, "2026-11-11"))
+        org.junit.Assert.assertEquals("실시간 아님 · 공공데이터 스냅샷 · 데이터 기준일 2026-02-25 · 수집일 2026-11-11 · 한국도로공사", com.hmgcarapp.wakemate.ui.shelterBadge(false, "2026-02-25", "2026-11-11"))
+    }
+
+    @org.junit.Test fun distanceSpeechBoundary() {
+        org.junit.Assert.assertEquals("바로 근처예요", com.hmgcarapp.wakemate.domain.WakeText.distanceSpeech(0.0))
+        org.junit.Assert.assertEquals("바로 근처예요", com.hmgcarapp.wakemate.domain.WakeText.distanceSpeech(0.049))
+        org.junit.Assert.assertEquals("약 0.1킬로미터예요", com.hmgcarapp.wakemate.domain.WakeText.distanceSpeech(0.05))
+        org.junit.Assert.assertEquals("약 1.2킬로미터예요", com.hmgcarapp.wakemate.domain.WakeText.distanceSpeech(1.2))
     }
 }

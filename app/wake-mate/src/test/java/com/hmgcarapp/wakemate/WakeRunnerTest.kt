@@ -30,6 +30,7 @@ import com.hmgcarapp.wakemate.domain.WakeEffect
 import com.hmgcarapp.wakemate.domain.WakeEvent
 import com.hmgcarapp.wakemate.domain.WakeFlow
 import com.hmgcarapp.wakemate.domain.WakeState
+import com.hmgcarapp.wakemate.domain.WakeText
 import com.hmgcarapp.wakemate.vehicle.HvacSnapshot
 import com.hmgcarapp.wakemate.vehicle.WakeHvac
 import kotlinx.coroutines.CancellationException
@@ -131,10 +132,29 @@ class WakeRunnerTest {
         advanceTimeBy(1_000); assertEquals(Status.LISTENING, r.alert!!.status)
         advanceTimeBy(2_000); assertEquals(1, r.notSleepy); assertEquals(Status.NOT_SLEEPY, r.alert!!.status)
         advanceTimeBy(1_000)
-        assertEquals(listOf("졸음 위험지수 45점이에요. 환기하고 쉬어 가세요. 졸리지 않으면 괜찮아, 퀴즈를 원하면 퀴즈라고 말씀하세요.", "알겠어요. 기준을 조금 높여 둘게요."), r.speaker.spoken)
+        assertEquals(listOf(WakeText.VENT_ASK, "알겠어요. 기준을 조금 높여 둘게요."), r.speaker.spoken)
         assertTrue(r.alert!!.finished)
         advanceTimeBy(24_999); assertTrue(r.alert != null)
         advanceTimeBy(2); assertNull(r.alert)
+    }
+
+    @Test fun stage1_accept_writesOnlyOutsideAir_andDrivingRestrictedIsReportedHonestly() = runTest {
+        val hv = FakeHvac(backgroundScope, goodSnap, 500) { listOf(ItemResult("recirc", false, 50001)) }
+        val r = rig(hvac = hv)
+        r.dispatch(WakeEvent.RiskUpdated(testScheduler.currentTime, 45, Stage.S1))
+        advanceTimeBy(1_100); advanceTimeBy(100)
+        advanceTimeBy(2_000)
+        assertEquals(HvacTargets(recirc = false), hv.applied)
+        assertEquals(listOf(WakeText.VENT_ASK, "외기 순환은 주행 중에는 차량 정책상 앱이 공조를 바꿀 수 없어요. 창문을 열어 환기해 주세요"), r.speaker.spoken)
+        assertEquals(Status.FAILED, r.alert!!.status)
+    }
+
+    @Test fun stage1_decline_doesNotTouchHvac() = runTest {
+        val hv = FakeHvac(backgroundScope, goodSnap, 500)
+        val r = rig(hvac = hv, listener = FakeListener { ListenResult.Text("아니") })
+        r.dispatch(WakeEvent.RiskUpdated(testScheduler.currentTime, 45, Stage.S1))
+        advanceTimeBy(3_000)
+        assertEquals(0, hv.applyCalls); assertEquals(Status.DECLINED, r.alert!!.status)
     }
 
     @Test fun stage2_appliesPlanFromSnapshot_andReportsOnlyConfirmedItemsAfterSpeech() = runTest {

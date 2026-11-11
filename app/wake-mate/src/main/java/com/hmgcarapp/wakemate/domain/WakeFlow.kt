@@ -48,9 +48,14 @@ data class Alert(
     /** 공조 결과에 따른 최종 상태(null = 기본). */
     val finalStatus: String? = null,
     val finished: Boolean = false,
+    /** 1단계에서 '외기로 바꿔드릴까요?' 를 물었는지(듣는 중 '응' 은 퀴즈가 아니라 외기 전환). */
+    val ventOffer: Boolean = false,
 ) {
-    /** 3단계 쉼터 한 줄(배너·주행 화면 공통). 가상 샘플이면 그 사실을 함께 적는다. */
-    val shelterLine: String? get() = shelter?.let { it.shelter.name + if (sampleData) " · 가상 샘플" else "" }
+    /** 3단계 쉼터 한 줄(배너·주행 화면 공통). 가상 샘플이면 그 사실을 함께 적는다(실데이터는 이름만). */
+    val shelterLine: String? get() = shelter?.let { 
+        if (sampleData) it.shelter.name + " · 가상 샘플"
+        else listOf(it.shelter.kindLabel, it.shelter.name, it.shelter.directionLabel).filter { p -> p.isNotEmpty() }.joinToString(" ") + " · 스냅샷"
+    }
 }
 
 data class ReplaceConfirm(val shelterId: String)
@@ -76,6 +81,8 @@ data class WakeState(
     val message: String? = null,
     /** 이번 에피소드 첫 공조 적용 때 읽은 설정 온도(반복 시 누적 하강 방지용 기준). */
     val baseTempC: Float? = null,
+    /** 이번 에피소드에서 1단계 외기 전환 제안을 이미 했는지(반복 제안 억제). 휴식·에피소드 초기화 때 해제. */
+    val ventOffered: Boolean = false,
 ) {
     val inFlight: Boolean get() = alert?.finished == false
 }
@@ -92,7 +99,7 @@ sealed interface WakeEvent {
     data class ShelterPlanned(val id: Long, val near: NearShelter?, val plan: RoutePlan?, val sampleData: Boolean, val locationKnown: Boolean = true) : WakeEvent
     data class VoiceSpoken(val id: Long, val ok: Boolean) : WakeEvent
     data class VoiceHeard(val id: Long, val purpose: Purpose, val heard: Heard, val responseMs: Long) : WakeEvent
-    data class HvacApplied(val id: Long, val results: List<ItemResult>, val planned: HvacTargets, val connected: Boolean, val baseTempC: Float? = null) : WakeEvent
+    data class HvacApplied(val id: Long, val results: List<ItemResult>, val planned: HvacTargets, val connected: Boolean, val baseTempC: Float? = null, val ventOnly: Boolean = false) : WakeEvent
     data class NaviResult(val id: Long?, val status: NaviStatus?) : WakeEvent
     data class ResultSpoken(val id: Long) : WakeEvent
     data class AlertFailed(val id: Long) : WakeEvent
@@ -111,6 +118,9 @@ sealed interface WakeEvent {
     data class ReplaceAsked(val shelterId: String) : WakeEvent, UserEvent
     data object ReplaceConfirmed : WakeEvent, UserEvent
     data object ReplaceCancelled : WakeEvent, UserEvent
+    /** 정차 화면 버튼: 1단계 외기 전환 제안에 대한 답(주행 중 무시). */
+    data object VentAccept : WakeEvent, UserEvent
+    data object VentDecline : WakeEvent, UserEvent
     data class ManualNavi(val shelterId: String, val action: NaviAction) : WakeEvent, UserEvent
 }
 
@@ -120,7 +130,8 @@ sealed interface WakeEffect {
     data class Speak(val id: Long, val text: String) : WakeEffect
     data class Listen(val id: Long, val purpose: Purpose) : WakeEffect
     data class PlanShelter(val id: Long) : WakeEffect
-    data class ApplyHvac(val id: Long) : WakeEffect
+    /** [ventOnly] 면 외기 순환만 바꾼다(1단계 제안 수락). 아니면 2단계 계획 전체. */
+    data class ApplyHvac(val id: Long, val ventOnly: Boolean = false) : WakeEffect
     data class StartNavi(val id: Long?, val shelterId: String, val action: NaviAction) : WakeEffect
     data class SpeakResult(val id: Long, val text: String) : WakeEffect
     data class ScheduleExpiry(val id: Long, val delayMs: Long) : WakeEffect
@@ -136,14 +147,24 @@ object WakeText {
         "졸음 위험지수 ${score}점이에요. 환기하고 쉬어 가세요." +
             if (voiceReply) " 졸리지 않으면 괜찮아, 퀴즈를 원하면 퀴즈라고 말씀하세요." else ""
 
+    const val VENT_ASK = "졸음 위험이 올라가고 있어요. 공기를 외기로 바꿔드릴까요?"
+
     fun s2(score: Int, hvac: Boolean) =
         "졸음 위험지수 ${score}점으로 높아요. " + if (hvac) "외기 순환과 바람 세기를 조절해 볼게요." else "창문을 열어 환기하고 가까운 쉼터에서 쉬어 가세요."
+
+    /** 0.05km(50m) 미만이면 '바로 근처예요', 그 외 '약 N킬로미터예요'(소수 한 자리). */
+    fun distanceSpeech(km: Double): String = if (km < 0.05) "바로 근처예요" else "약 ${"%.1f".format(km)}킬로미터예요"
 
     fun s3(score: Int, near: NearShelter?, sample: Boolean, plan: RoutePlan?, voiceReply: Boolean, locationKnown: Boolean = true): String {
         if (!locationKnown) return "졸음 위험지수 ${score}점으로 매우 높아요. 현재 위치를 확인하지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
         if (near == null) return "졸음 위험지수 ${score}점으로 매우 높아요. 근처 졸음쉼터 정보를 찾지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
-        val head = "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 졸음쉼터, ${near.shelter.name}, 약 ${"%.1f".format(near.distanceKm)}킬로미터예요." +
-            if (sample) " 시연용 샘플 데이터예요." else ""
+        val dist = distanceSpeech(near.distanceKm)
+        val head = if (sample) "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 ${near.shelter.kindLabel}, ${near.shelter.name}, $dist. 시연용 샘플 데이터예요."
+        else {
+            val dir = near.shelter.directionLabel.let { if (it.isEmpty()) "" else ", $it" }
+            "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 ${near.shelter.kindLabel}, ${near.shelter.spokenName}$dir, $dist. " +
+                "진행 방향은 반영하지 않으니 방향을 확인하세요. 공공데이터 스냅샷이라 실시간 정보는 아니에요."
+        }
         return head + if (voiceReply && plan != null) " ${plan.ask}" else " 안전한 곳에서 쉬어 가세요."
     }
 
@@ -186,13 +207,15 @@ object WakeFlow {
             is WakeEvent.Options -> s.copy(voiceReply = e.voiceReply, hvacControl = e.hvacControl) to NONE
             is WakeEvent.RiskUpdated -> risk(s, e)
             is WakeEvent.DriveChanged -> drive(s, e.driving)
-            WakeEvent.Rested -> s.copy(episode = Stage.NONE, snoozeUntilMs = null, snoozeStage = Stage.NONE, lastAlertAtMs = null, noneSinceMs = null, baseTempC = null) to NONE
+            WakeEvent.Rested -> s.copy(episode = Stage.NONE, snoozeUntilMs = null, snoozeStage = Stage.NONE, lastAlertAtMs = null, noneSinceMs = null, baseTempC = null, ventOffered = false) to NONE
             is WakeEvent.ForceStage -> fire(s, e.stage)
             is WakeEvent.ShelterPlanned -> planned(s, e)
             is WakeEvent.VoiceSpoken -> spoken(s, e)
             is WakeEvent.VoiceHeard -> heard(s, e)
             is WakeEvent.SimHeard -> s.alert?.takeIf { it.status == Status.LISTENING && it.listening != null && !it.finished }
                 ?.let { a -> heard(s, WakeEvent.VoiceHeard(a.id, a.listening!!, Heard.Text(e.text), 1_000L)) } ?: (s to listOf(WakeEffect.Warn("SIM 무시: 듣는 중인 질문 없음")))
+            WakeEvent.VentAccept -> ventAnswer(s, "응")
+            WakeEvent.VentDecline -> ventAnswer(s, "아니")
             is WakeEvent.HvacApplied -> hvac(s, e)
             is WakeEvent.NaviResult -> {
                 val a = s.alert
@@ -223,7 +246,8 @@ object WakeFlow {
         s = if (e.stage == Stage.NONE) {
             val since = s.noneSinceMs ?: e.nowMs
             s.copy(noneSinceMs = since, episode = if (e.nowMs - since >= AlertPolicy.EPISODE_RESET_MS) Stage.NONE else s.episode,
-                baseTempC = if (e.nowMs - since >= AlertPolicy.EPISODE_RESET_MS) null else s.baseTempC)
+                baseTempC = if (e.nowMs - since >= AlertPolicy.EPISODE_RESET_MS) null else s.baseTempC,
+                ventOffered = if (e.nowMs - since >= AlertPolicy.EPISODE_RESET_MS) false else s.ventOffered)
         } else s.copy(noneSinceMs = null)
         return if (AlertPolicy.shouldFire(s, e.stage, e.nowMs)) fire(s, e.stage) else s to NONE
     }
@@ -246,8 +270,11 @@ object WakeFlow {
         val common = listOf(WakeEffect.CancelVoice, WakeEffect.ClearNaviFinished(null))
         return when (stage) {
             Stage.S1 -> {
-                val text = WakeText.s1(s.score, s.voiceReply)
-                ns.copy(alert = base.copy(status = Status.SPEAKING, after = if (s.voiceReply) Purpose.CHOICE else null)) to
+                // 음성 응답이 켜져 있고 공조 제어를 쓰며 이번 에피소드에서 아직 제안하지 않았으면 외기 전환을 묻는다(반복 제안 안 함)
+                val offer = s.voiceReply && s.hvacControl && !s.ventOffered
+                val text = if (offer) WakeText.VENT_ASK else WakeText.s1(s.score, s.voiceReply)
+                ns.copy(ventOffered = s.ventOffered || offer,
+                    alert = base.copy(status = Status.SPEAKING, ventOffer = offer, after = if (s.voiceReply) Purpose.CHOICE else null)) to
                     (common + WakeEffect.Speak(id, text))
             }
             Stage.S2 -> {
@@ -298,7 +325,7 @@ object WakeFlow {
         val s = s0.copy(baseTempC = s0.baseTempC ?: e.baseTempC)
         val a = s.alert ?: return s to NONE
         if (a.id != e.id || a.finished) return s to NONE
-        val summary = HvacReport.summary(e.results, e.planned, e.connected)
+        val summary = HvacReport.summary(e.results, e.planned, e.connected, e.ventOnly)
         val fin = when {
             !e.connected -> Status.FAILED
             e.results.isEmpty() && !e.planned.isEmpty -> Status.FAILED
@@ -317,7 +344,7 @@ object WakeFlow {
         if (a.id != e.id || a.finished || a.status != Status.LISTENING) return s to NONE
         val h = e.heard
         return when (e.purpose) {
-            Purpose.CHOICE -> when {
+            Purpose.CHOICE -> if (a.ventOffer) ventChoice(s, a, h) else when {
                 h !is Heard.Text -> finish(s, if (h == Heard.Timeout) Status.NO_REPLY else Status.FAILED)
                 VoiceIntent.isNotSleepy(h.text) ->
                     s.copy(alert = a.copy(status = Status.NOT_SLEEPY, detail = WakeText.NOT_SLEEPY_ACK, listening = null)) to
@@ -355,6 +382,36 @@ object WakeFlow {
                 ) to listOf(WakeEffect.RecordQuiz(o, e.responseMs), WakeEffect.SpeakResult(a.id, text))
             }
         }
+    }
+
+    /** 1단계 외기 전환 제안에 대한 답: 긍정이면 외기 전환만 실행, 퀴즈 요청은 퀴즈, 그 밖(부정·무응답·실패)은 아무것도 바꾸지 않고 끝낸다. */
+    private fun ventChoice(s: WakeState, a: Alert, h: Heard): Pair<WakeState, List<WakeEffect>> {
+        if (h !is Heard.Text) return finish(s, if (h == Heard.Timeout) Status.NO_REPLY else Status.FAILED)
+        val bareOk = VoiceIntent.normalize(h.text).replace(" ", "") in setOf("괜찮아", "괜찮아요", "괜찮습니다") // 제안에 대한 사양('괜찮아요')이므로 졸음 보정이 아니다
+        // '네 괜찮아요' 처럼 수락어가 앞서고 '괜찮아'가 붙은 복합 발화는 수락이다('아니/안 괜찮아'는 거절, 단독 '괜찮아요'는 거절)
+        val acceptOk = !bareOk && !VoiceIntent.isReject(h.text) && VoiceIntent.isAcceptThenOk(h.text)
+        return when {
+            VoiceIntent.isReject(h.text) || bareOk -> finish(s, Status.DECLINED)
+            acceptOk -> s.copy(alert = a.copy(status = Status.WORKING, listening = null, introDone = true)) to listOf(WakeEffect.ApplyHvac(a.id, ventOnly = true))
+            VoiceIntent.isNotSleepy(h.text) ->
+                s.copy(alert = a.copy(status = Status.NOT_SLEEPY, detail = WakeText.NOT_SLEEPY_ACK, listening = null)) to
+                    listOf(WakeEffect.ApplyNotSleepy, WakeEffect.SpeakResult(a.id, WakeText.NOT_SLEEPY_ACK))
+            VoiceIntent.isQuiz(h.text) -> {
+                val word = Quiz.pick(s.quizIdx)
+                s.copy(quizIdx = s.quizIdx + 1, alert = a.copy(status = Status.SPEAKING, quizWord = word, after = Purpose.QUIZ, listening = null)) to
+                    listOf(WakeEffect.Speak(a.id, Quiz.question(word)))
+            }
+            VoiceIntent.isAccept(h.text) ->
+                s.copy(alert = a.copy(status = Status.WORKING, listening = null, introDone = true)) to listOf(WakeEffect.ApplyHvac(a.id, ventOnly = true))
+            VoiceIntent.normalize(h.text).isEmpty() -> finish(s, Status.NO_REPLY)
+            else -> finish(s, Status.DECLINED)
+        }
+    }
+
+    /** 화면 버튼 답: 듣는 중인 외기 전환 제안에만 적용한다(음성 응답과 같은 경로). */
+    private fun ventAnswer(s: WakeState, word: String): Pair<WakeState, List<WakeEffect>> {
+        val a = s.alert?.takeIf { it.ventOffer && it.status == Status.LISTENING && !it.finished } ?: return s to NONE
+        return heard(s, WakeEvent.VoiceHeard(a.id, Purpose.CHOICE, Heard.Text(word), 1_000L))
     }
 
     private fun quizDetail(o: Quiz.Outcome, ms: Long) = when (o) {

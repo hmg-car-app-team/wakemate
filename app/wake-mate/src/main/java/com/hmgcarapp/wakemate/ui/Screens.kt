@@ -44,6 +44,7 @@ import com.hmgcarapp.wakemate.domain.NaviText
 import com.hmgcarapp.wakemate.domain.RestAdvice
 import com.hmgcarapp.wakemate.domain.RiskResult
 import com.hmgcarapp.wakemate.domain.Stage
+import com.hmgcarapp.wakemate.domain.Status
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -156,6 +157,10 @@ private fun AlertCard(c: AppController, a: Alert) {
         a.shelterLine?.let { Txt(it, modifier = Modifier.testTag("banner_shelter")) }
         Txt(a.status, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_status"))
         a.detail?.let { Txt(it, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_detail")) }
+        if (a.ventOffer && a.status == Status.LISTENING && !a.finished) Row(horizontalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
+            PleosButton("외기로 바꾸기", onClick = { c.answerVent(true) }, modifier = Modifier.testTag("btn_vent_yes"))
+            PleosButton("괜찮아요", onClick = { c.answerVent(false) }, hierarchy = PleosButtonHierarchy.Secondary, modifier = Modifier.testTag("btn_vent_no"))
+        }
         if (a.finished) PleosButton("닫기", onClick = { c.dismissAlert() }, hierarchy = PleosButtonHierarchy.Secondary)
     }
 }
@@ -199,7 +204,12 @@ private fun NaviLine(c: AppController) {
 
 /** 쉼터 화면 안내 문장: 직선거리 안내는 항상, '가상 데이터' 문장은 샘플 데이터일 때만(배지와 같은 조건). */
 internal fun shelterNotice(sample: Boolean): String =
-    "직선거리 기준이며 실제 도로 거리·진행 방향은 반영하지 않아요." + if (sample) " 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요." else ""
+    "직선거리 기준이며 실제 도로 거리·진행 방향은 반영하지 않아요." + if (sample) " 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요." else " 실시간 정보가 아니에요."
+
+/** 배지 문구: 샘플이면 기존 '시연용 가상 샘플 데이터', 실데이터면 실시간 아님(맨 앞)·출처·데이터 기준일·수집일. */
+internal fun shelterBadge(sample: Boolean, asOf: String, collectedAt: String = ""): String =
+    if (sample) "시연용 가상 샘플 데이터"
+    else "실시간 아님 · 공공데이터 스냅샷 · 데이터 기준일 ${asOf.ifEmpty { "미상" }} · 수집일 ${collectedAt.ifEmpty { "미상" }} · 한국도로공사"
 
 @Composable
 private fun ShelterPage(c: AppController, s: UiState) {
@@ -207,7 +217,7 @@ private fun ShelterPage(c: AppController, s: UiState) {
         val ds = s.dataset
         if (ds == null) Txt("쉼터 데이터를 불러오지 못했어요", secondary = true)
         else {
-            if (ds.sample) PleosStatusBadge("시연용 가상 샘플 데이터", PleosStatus.Autonomous)
+            PleosStatusBadge(shelterBadge(ds.sample, ds.asOf, ds.collectedAt), PleosStatus.Autonomous)
             Txt(shelterNotice(ds.sample), PleosTheme.typography.labelMedium, secondary = true)
         }
         NaviLine(c)
@@ -218,7 +228,7 @@ private fun ShelterPage(c: AppController, s: UiState) {
         s.nearby.forEach { n ->
             PleosListItem(
                 title = n.shelter.name,
-                description = "${String.format(Locale.KOREA, "%.1f", n.distanceKm)}km · ${n.shelter.roadName} ${n.shelter.direction}",
+                description = "${String.format(Locale.KOREA, "%.1f", n.distanceKm)}km · ${n.shelter.kindLabel} · ${n.shelter.roadName} ${n.shelter.direction}",
                 trailing = { PleosButton("안내", onClick = { c.guide(n.shelter.id) }, modifier = Modifier.testTag("guide_${n.shelter.id}")) },
             )
         }
@@ -283,6 +293,9 @@ private fun SettingsPage(c: AppController, s: UiState) {
             confirmLabel = "삭제", onConfirm = { ask = false; c.clearAllData() },
             onDismissRequest = { ask = false }, cancelLabel = "취소",
         )
+    }
+    PleosPanel(Modifier.fillMaxWidth(), title = "데이터 출처") {
+        Txt("졸음쉼터·휴게소: 한국도로공사 공공데이터(공공데이터포털 15028203, 15025446; 이용허락범위 제한 없음)를 가공한 스냅샷이에요. 실시간 정보가 아니며 최신성·정확성은 보증하지 않아요.", PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("data_source"))
     }
     PleosPanel(Modifier.fillMaxWidth(), title = "알아두세요") {
         Txt("앱이 다른 화면에 가려지면 음성 안내·음성 인식이 멈춰요. 이 앱은 운전자 보조 도구이며 졸음 운전을 막을 수 없어요. 졸리면 즉시 안전한 곳에 정차해 쉬세요.", PleosTheme.typography.labelMedium, secondary = true)

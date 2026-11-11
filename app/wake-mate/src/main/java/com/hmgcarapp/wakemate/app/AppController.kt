@@ -27,6 +27,7 @@ import com.hmgcarapp.wakemate.domain.RestEvent
 import com.hmgcarapp.wakemate.domain.RiskEngine
 import com.hmgcarapp.wakemate.domain.RiskInputs
 import com.hmgcarapp.wakemate.domain.RouteAdvisor
+import com.hmgcarapp.wakemate.domain.ShelterDataset
 import com.hmgcarapp.wakemate.domain.ShelterRepo
 import com.hmgcarapp.wakemate.domain.SimPattern
 import com.hmgcarapp.wakemate.domain.SimPatterns
@@ -153,10 +154,7 @@ class AppController(
     fun onUiDriveState(d: DriveState) { uiDrive = d; applyDrive() }
 
     private suspend fun loadShelters() {
-        val ds = withContext(Dispatchers.IO) {
-            try { context.assets.open(SHELTER_ASSET).bufferedReader(Charsets.UTF_8).use { ShelterRepo.parse(it.readText()) } }
-            catch (t: Throwable) { HmgLog.w("Shelter", "쉼터 데이터 읽기 실패: ${t.javaClass.simpleName}"); null }
-        }
+        val ds = withContext(Dispatchers.IO) { loadShelterDataset(context.assets::open) }
         _state.update { it.copy(dataset = ds) }
         refreshNearby()
     }
@@ -243,7 +241,7 @@ class AppController(
     fun setBeep(on: Boolean) = parkedOnly { updateP { it.copy(settings = it.settings.copy(beep = on)) } }
     private fun pushOptions() { val s = _state.value.p.settings; dispatch(WakeEvent.Options(s.voiceReply, s.hvacControl)) }
 
-    /** 터치로 '졸리지 않아요'(정차 시). 음성으로는 깨우기 질문에 '괜찮아'라고 답한다. */
+    /** 터치로 '졸리지 않아요'(정차 시). 음성으로는 깨우기 질문(외기 제안이 아닌 경우)에 '괜찮아'라고 답한다. 첫 1단계 외기 제안에서 단독 '괜찮아요'는 거절이라 보정되지 않는다. */
     fun notSleepy() = parkedOnly { applyNotSleepy(byVoice = false) }
 
     /** 보정 적용(음성 응답 경로는 시스템 주도라 가드 없음: 졸음 경고 응답은 주행 중에도 받아야 한다). */
@@ -254,6 +252,7 @@ class AppController(
     }
 
     fun resetCalibration() = parkedOnly { updateP { it.copy(calibration = Calibration()) } }
+    fun answerVent(accept: Boolean) = parkedOnly { dispatch(if (accept) WakeEvent.VentAccept else WakeEvent.VentDecline) }
     fun startQuizPractice() = parkedOnly { dispatch(WakeEvent.StartQuizPractice) }
     fun guide(shelterId: String) = parkedOnly { runner.guide(shelterId) }
     fun confirmReplace() = parkedOnly { dispatch(WakeEvent.ReplaceConfirmed) }
@@ -390,7 +389,22 @@ class AppController(
     }
 
     companion object {
-        const val SHELTER_ASSET = "rest_shelters_sample.json"
+        const val SHELTER_ASSET = "rest_shelters.json"
+        const val REST_AREA_ASSET = "rest_areas.json"
+        const val SHELTER_SAMPLE_ASSET = "rest_shelters_sample.json"
+
+        /**
+         * 졸음쉼터(필수)+휴게소(선택) 실데이터를 합친다. 졸음쉼터 파일이 없거나 파싱 실패·0건이면 가상 샘플로 폴백하고,
+         * 휴게소 파일만 실패하면 졸음쉼터만 쓴다. 모두 실패하면 null(화면에 '불러오지 못했어요').
+         */
+        fun loadShelterDataset(open: (String) -> java.io.InputStream): ShelterDataset? {
+            fun read(name: String, prefix: String): ShelterDataset? =
+                try { open(name).bufferedReader(Charsets.UTF_8).use { ShelterRepo.parse(it.readText(), prefix) }.takeIf { it.shelters.isNotEmpty() } }
+                catch (t: Throwable) { HmgLog.w("Shelter", "쉼터 데이터 읽기 실패: ${t.javaClass.simpleName}"); null }
+            val real = read(SHELTER_ASSET, "S")
+            if (real != null) return read(REST_AREA_ASSET, "R")?.let { real + it } ?: real
+            return read(SHELTER_SAMPLE_ASSET, "S")
+        }
         const val TICK_MS = 1_000L
         const val STEER_SAMPLE_MS = 500L
         const val ANGLE_FRESH_MS = 5_000L

@@ -1,6 +1,9 @@
 package com.hmgcarapp.wakemate
 
 import com.hmgcarapp.wakemate.domain.Heard
+import com.hmgcarapp.wakemate.domain.HvacCaps
+import com.hmgcarapp.wakemate.domain.HvacNow
+import com.hmgcarapp.wakemate.domain.HvacPlan
 import com.hmgcarapp.wakemate.domain.HvacTargets
 import com.hmgcarapp.wakemate.domain.ItemResult
 import com.hmgcarapp.wakemate.domain.LatLon
@@ -47,13 +50,13 @@ class WakeFlowTest {
         val h = H()
         val fx1 = h.send(WakeEvent.RiskUpdated(100_000, 45, Stage.S1))
         assertEquals(
-            commonFx + WakeEffect.Speak(1, "졸음 위험지수 45점이에요. 환기하고 쉬어 가세요. 졸리지 않으면 괜찮아, 퀴즈를 원하면 퀴즈라고 말씀하세요."),
+            commonFx + WakeEffect.Speak(1, "졸음 위험이 올라가고 있어요. 공기를 외기로 바꿔드릴까요?"),
             fx1,
         )
         assertEquals(Status.SPEAKING, h.alert!!.status); assertEquals(Stage.S1, h.s.episode)
         assertEquals(listOf(WakeEffect.Listen(1, Purpose.CHOICE)), h.send(WakeEvent.VoiceSpoken(1, true)))
         assertEquals(Status.LISTENING, h.alert!!.status)
-        val fx3 = h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, Heard.Text("괜찮아"), 2000))
+        val fx3 = h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, Heard.Text("졸리지 않아요"), 2000))
         assertEquals(listOf(WakeEffect.ApplyNotSleepy, WakeEffect.SpeakResult(1, WakeText.NOT_SLEEPY_ACK)), fx3)
         assertEquals(Status.NOT_SLEEPY, h.alert!!.status)
         assertEquals(listOf(WakeEffect.ScheduleExpiry(1, 25_000)), h.send(WakeEvent.ResultSpoken(1)))
@@ -81,6 +84,118 @@ class WakeFlowTest {
         assertEquals(Status.NO_REPLY, run(Heard.Timeout))
         assertEquals(Status.NO_REPLY, run(Heard.Text("  ")))
         assertEquals(Status.FAILED, run(Heard.Failure))
+    }
+
+    // ---------------- 1단계: 외기 전환 제안 ----------------
+    private fun H.s1Listening(): H { send(WakeEvent.RiskUpdated(100_000, 45, Stage.S1)); send(WakeEvent.VoiceSpoken(1, true)); return this }
+
+    @Test fun stage1_offersOutsideAir_speaksAskAndListens() {
+        val h = H()
+        val fx = h.send(WakeEvent.RiskUpdated(100_000, 45, Stage.S1))
+        assertEquals(commonFx + WakeEffect.Speak(1, WakeText.VENT_ASK), fx)
+        assertTrue(h.alert!!.ventOffer); assertTrue(h.s.ventOffered)
+        assertEquals(listOf(WakeEffect.Listen(1, Purpose.CHOICE)), h.send(WakeEvent.VoiceSpoken(1, true)))
+    }
+
+    @Test fun stage1_accept_appliesOutsideAirOnly_andReportsResult() {
+        for (word in listOf("응", "네", "좋아요")) {
+            val h = H().s1Listening()
+            assertEquals(listOf(WakeEffect.ApplyHvac(1, ventOnly = true)), h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, Heard.Text(word), 1000)))
+            assertEquals(Status.WORKING, h.alert!!.status)
+            val fx = h.send(WakeEvent.HvacApplied(1, listOf(ItemResult("recirc", true, null)), HvacTargets(recirc = false), true))
+            assertEquals(listOf(WakeEffect.SpeakResult(1, "외기 순환으로 바꿨어요")), fx)
+            h.send(WakeEvent.ResultSpoken(1))
+            assertTrue(h.alert!!.finished); assertEquals(Status.DONE, h.alert!!.status)
+        }
+    }
+
+    @Test fun stage1_decline_noReply_failure_changeNothing() {
+        for ((heard, st) in listOf(Heard.Text("아니") to Status.DECLINED, Heard.Text("괜찮아요") to Status.DECLINED, Heard.Text("몰라") to Status.DECLINED,
+            Heard.Timeout to Status.NO_REPLY, Heard.Failure to Status.FAILED)) {
+            val h = H().s1Listening()
+            val fx = h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, heard, 1000))
+            assertTrue(fx.none { it is WakeEffect.ApplyHvac || it is WakeEffect.ApplyNotSleepy })
+            assertEquals(st, h.alert!!.status); assertTrue(h.alert!!.finished)
+        }
+    }
+
+    @Test fun acceptThenOk_rejectsQuestions() {
+        assertTrue(com.hmgcarapp.wakemate.domain.VoiceIntent.isAcceptThenOk("네 괜찮아요"))
+        assertTrue(!com.hmgcarapp.wakemate.domain.VoiceIntent.isAcceptThenOk("네 괜찮아요?")); assertTrue(!com.hmgcarapp.wakemate.domain.VoiceIntent.isAcceptThenOk("응 괜찮아？"))
+    }
+
+    @Test fun stage1_compoundOk_isAccept_butNegatedOrBareOk_isDecline_andNotSleepyStaysPersonal() {
+        for (word in listOf("네 괜찮아요", "응 괜찮아", "좋아요 괜찮아요")) {
+            val h = H().s1Listening()
+            assertEquals(word, listOf(WakeEffect.ApplyHvac(1, ventOnly = true)), h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, Heard.Text(word), 1000)))
+        }
+        for (word in listOf("안 괜찮아", "아니 괜찮아", "괜찮아요", "괜찮아")) {
+            val h = H().s1Listening()
+            val fx = h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, Heard.Text(word), 1000))
+            assertTrue(word, fx.none { it is WakeEffect.ApplyHvac || it is WakeEffect.ApplyNotSleepy }); assertEquals(Status.DECLINED, h.alert!!.status)
+        }
+        val h = H().s1Listening()
+        assertTrue(h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, Heard.Text("졸리지 않아요"), 1000)).contains(WakeEffect.ApplyNotSleepy))
+    }
+
+    @Test fun stage1_recircUnavailable_reportsFactAndFails() {
+        val caps = HvacCaps(recirc = false, fan = true, temp = true)
+        assertFalse(HvacPlan.usable(true, caps, ventOnly = true))
+        assertTrue(HvacPlan.usable(true, caps, ventOnly = false))
+        assertFalse(HvacPlan.usable(true, HvacCaps(recirc = false), ventOnly = true))
+        assertTrue(HvacPlan.usable(true, HvacCaps(recirc = true), ventOnly = true))
+        // now.recirc 읽기 불가여도 recirc 쓰기 불가면 계획은 비고 usable=false 로 보낸다
+        assertTrue(HvacPlan.planVent(HvacNow(recirc = null), caps).isEmpty)
+        val h = H().s1Listening()
+        h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, Heard.Text("응"), 1000))
+        val fx = h.send(WakeEvent.HvacApplied(1, emptyList(), HvacTargets(), false, ventOnly = true))
+        val msg = (fx.single() as WakeEffect.SpeakResult).text
+        assertTrue(msg, msg.contains("외기 전환을 할 수 없어요") && msg.contains("창문을 열어"))
+        assertFalse(msg.contains("이미 환기"))
+        h.send(WakeEvent.ResultSpoken(1)); assertEquals(Status.FAILED, h.alert!!.status)
+    }
+
+    @Test fun stage1_buttons_acceptAndDecline_onlyWhileParkedAndListening() {
+        val driving = H().s1Listening()
+        assertTrue(driving.send(WakeEvent.VentAccept).isEmpty()); assertEquals(Status.LISTENING, driving.alert!!.status)
+        val parked = H().s1Listening(); parked.send(WakeEvent.DriveChanged(false))
+        assertEquals(listOf(WakeEffect.ApplyHvac(1, ventOnly = true)), parked.send(WakeEvent.VentAccept))
+        val no = H().s1Listening(); no.send(WakeEvent.DriveChanged(false))
+        assertTrue(no.send(WakeEvent.VentDecline).none { it is WakeEffect.ApplyHvac }); assertEquals(Status.DECLINED, no.alert!!.status)
+        assertTrue(no.send(WakeEvent.VentAccept).isEmpty())
+    }
+
+    @Test fun stage1_simHeard_acceptsOffer() {
+        val h = H().s1Listening()
+        assertEquals(listOf(WakeEffect.ApplyHvac(1, ventOnly = true)), h.send(WakeEvent.SimHeard("응")))
+    }
+
+    @Test fun stage1_offerNotRepeatedInSameEpisode_butAgainAfterRest() {
+        val h = H(); h.fireAndFinishS1(100_000)
+        val fx = h.send(WakeEvent.RiskUpdated(400_000, 45, Stage.S1))
+        assertEquals(WakeText.s1(45, true), (fx.single { it is WakeEffect.Speak } as WakeEffect.Speak).text); assertFalse(h.alert!!.ventOffer)
+        h.send(WakeEvent.VoiceSpoken(2, true)); h.send(WakeEvent.VoiceHeard(2, Purpose.CHOICE, Heard.Text("응"), 1000)) // 구형 문구: 응 -> 퀴즈
+        assertEquals(Purpose.QUIZ, h.alert!!.after)
+        h.send(WakeEvent.Rested); assertFalse(h.s.ventOffered)
+    }
+
+    @Test fun stage1_noOffer_whenHvacControlOff() {
+        val h = H(WakeState(hvacControl = false)); h.send(WakeEvent.RiskUpdated(0, 45, Stage.S1))
+        assertFalse(h.alert!!.ventOffer); assertFalse(h.s.ventOffered)
+    }
+
+    @Test fun stage1_acceptButDrivingRestricted_reportsHonestly() {
+        val h = H().s1Listening(); h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, Heard.Text("응"), 1000))
+        val fx = h.send(WakeEvent.HvacApplied(1, listOf(ItemResult("recirc", false, 50001)), HvacTargets(recirc = false), true))
+        assertEquals("외기 순환은 주행 중에는 차량 정책상 앱이 공조를 바꿀 수 없어요. 창문을 열어 환기해 주세요", (fx.single() as WakeEffect.SpeakResult).text)
+        h.send(WakeEvent.ResultSpoken(1)); assertEquals(Status.FAILED, h.alert!!.status)
+    }
+
+    @Test fun stage2_autoSwitchUnchanged_afterOffer() {
+        val h = H().s1Listening(); h.send(WakeEvent.VoiceHeard(1, Purpose.CHOICE, Heard.Text("아니"), 1000))
+        val fx = h.send(WakeEvent.RiskUpdated(160_000, 65, Stage.S2))
+        assertTrue(fx.contains(WakeEffect.ApplyHvac(2)))
+        assertEquals(WakeText.s2(65, true), (fx.single { it is WakeEffect.Speak } as WakeEffect.Speak).text)
     }
 
     // ---------------- 발화 조건 ----------------
@@ -478,7 +593,7 @@ class WakeFlowTest {
     @Test fun shelterLine_showsNameAndSampleNotice() {
         val h = H().toS3Listening()
         assertEquals("가상 샘플 쉼터 1 · 가상 샘플", h.alert!!.shelterLine)
-        assertEquals("가상 샘플 쉼터 1", h.alert!!.copy(sampleData = false).shelterLine)
+        assertEquals("졸음쉼터 가상 샘플 쉼터 1 상행 · 스냅샷", h.alert!!.copy(sampleData = false).shelterLine)
         assertNull(h.alert!!.copy(shelter = null).shelterLine)
     }
 

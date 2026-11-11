@@ -32,6 +32,15 @@ object VoiceIntent {
         return c.isNotEmpty() && notSleepy.any { c.contains(it) } && !c.contains("안괜찮")
     }
 
+    /** 수락어로 시작하고 뒤에 '괜찮아' 계열이 붙은 복합 발화('네 괜찮아요', '응 괜찮아'). 거절어·'안 괜찮'은 제외. */
+    fun isAcceptThenOk(text: String): Boolean {
+        val c = compact(text)
+        if (isReject(text) || c.contains("안괜찮") || text.contains('?') || text.contains('？')) return false
+        val ok = listOf("괜찮습니다", "괜찮아요", "괜찮아").firstOrNull { c.endsWith(it) } ?: return false
+        val head = c.removeSuffix(ok)
+        return head.isNotEmpty() && isAccept(head)
+    }
+
     fun isQuiz(text: String): Boolean = compact(text).let { c -> c.isNotEmpty() && quizWords.any { c.contains(it) } }
 
     /** 수락: 공백을 뺀 전체가 수락 표현의 연속이어야 한다. [overwriteRoute] 면 경로를 덮어쓰는 요청이라 단음절 수락은 불가. */

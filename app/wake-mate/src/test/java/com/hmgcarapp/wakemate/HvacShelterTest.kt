@@ -26,6 +26,13 @@ class HvacShelterTest {
         assertEquals(HvacTargets(false, 4, 22.0f), HvacPlan.plan(HvacNow(power = true, recirc = true, fan = 2, tempC = 24f), caps))
     }
 
+    @Test fun planVent_onlyOutsideAir() {
+        val caps = HvacCaps(true, true, true, 1, 5, 16f, 32f)
+        assertEquals(HvacTargets(recirc = false), HvacPlan.planVent(HvacNow(true, true, 2, 24f), caps))
+        assertTrue(HvacPlan.planVent(HvacNow(true, false, 2, 24f), caps).isEmpty)
+        assertTrue(HvacPlan.planVent(HvacNow(), HvacCaps()).isEmpty)
+    }
+
     @Test fun plan_skipsItemsAlreadyAdequate() {
         assertEquals(HvacTargets(null, null, 22.0f), HvacPlan.plan(HvacNow(recirc = false, fan = 5, tempC = 24f), caps))
         assertEquals(HvacTargets(null, 4, null), HvacPlan.plan(HvacNow(recirc = false, fan = 3, tempC = 16f), caps)) // 이미 최저 온도
@@ -166,5 +173,95 @@ class HvacShelterTest {
         assertTrue(ds.sample)
         assertTrue(ds.notice.contains("실제 졸음쉼터가 아니") && ds.notice.contains("data.go.kr"))
         assertTrue(ds.shelters.all { it.name.startsWith("가상") })
+    }
+
+    @Test fun drivingRestrictedIsRecognizedFromSdkExceptionName() {
+        assertEquals(HvacErrors.DRIVING_RESTRICTED, HvacErrors.code("ERROR_DRIVING_RESTRICTED"))
+        assertEquals(HvacErrors.DRIVING_RESTRICTED, HvacErrors.codeOf(RuntimeException("wrap", Exception("ERROR_DRIVING_RESTRICTED"))))
+        assertEquals(50001, HvacErrors.code("error code: 50001"))
+        assertEquals(2, HvacErrors.code("error code: 2"))
+    }
+
+    @Test fun drivingRestrictedReportIsHonestAndKeepsOtherPaths() {
+        val planned = HvacTargets(recirc = false, fan = 8)
+        val r = listOf(ItemResult("recirc", false, HvacErrors.DRIVING_RESTRICTED), ItemResult("fan", true, null))
+        val text = HvacReport.summary(r, planned, connected = true)
+        assertTrue(text.contains("주행 중") && text.contains("외기 순환은"))
+        assertTrue(text.contains("바람 세기를 올렸어요"))
+        assertTrue(HvacReport.hasFailure(r))
+        assertEquals("알 수 없는 오류예요", HvacErrors.reason(null))
+    }
+}
+
+/** 실데이터 스냅샷(assets) 파싱·폴백·선택 로직. */
+class RealShelterDataTest {
+    private fun asset(n: String) = File("src/main/assets/$n").also { assertTrue("없음: ${it.absolutePath}", it.exists()) }.readText()
+    private val shelters get() = ShelterRepo.parse(asset("rest_shelters.json"), "S")
+    private val rests get() = ShelterRepo.parse(asset("rest_areas.json"), "R")
+
+    @Test fun realAssets_parseAllRows_andAreNotSample() {
+        val s = shelters; val r = rests
+        assertEquals(253, s.shelters.size); assertEquals(215, r.shelters.size)
+        assertTrue(!s.sample && !r.sample)
+        assertEquals("2026-02-25", s.asOf); assertEquals("2026-11-11", s.collectedAt); assertEquals("2026-09-17", r.asOf)
+        assertEquals("2026-02-25", (s + r).asOf); assertEquals("2026-02-25", (r + s).asOf) // 병합은 오래된 기준일
+        assertEquals("미상", (s + r.copy(asOf = "미상")).asOf)
+        assertTrue(s.shelters.none { it.isRestArea } && r.shelters.all { it.isRestArea })
+        assertEquals(468, (s + r).shelters.map { it.id }.toSet().size) // S/R 접두어로 id 중복 없음
+        assertEquals("휴게소", r.shelters[0].kindLabel); assertEquals("졸음쉼터", s.shelters[0].kindLabel)
+        assertTrue(r.shelters.all { it.pos.lat in 33.0..39.0 && it.pos.lon in 124.0..132.0 })
+    }
+
+    @Test fun nearest_onRealData_findsTheCoLocatedItemFirst_andMixesBothKinds() {
+        val all = shelters + rests
+        for (t in listOf(all.shelters[10], all.shelters[300])) {
+            val n = ShelterRepo.nearest(t.pos, all.shelters, 3)
+            assertEquals(t.name, n[0].shelter.name); assertEquals(0.0, n[0].distanceKm, 1e-6)
+            assertTrue(n.zipWithNext().all { (a, b) -> a.distanceKm <= b.distanceKm })
+        }
+        val seoul = ShelterRepo.nearest(LatLon(37.5665, 126.9780), all.shelters, 5)
+        assertEquals(5, seoul.size); assertTrue(seoul.all { it.distanceKm < 100.0 })
+        assertTrue(ShelterRepo.nearest(LatLon(33.5, 126.5), listOf(all.shelters.first { it.pos.lat > 37 }), 1, 100.0).isEmpty())
+    }
+
+    @Test fun parse_restAreaNameColumn_unknownColumnsIgnored_badRowsSkipped_oldSampleFormatStillWorks() {
+        val j = """{"items":[
+          {"휴게소명":"가(나)","위도":"37.5","경도":"127.0","도로노선방향":"상행","전기차충전소유무":"Y","새열":"x"},
+          {"휴게소명":"좌표없음"},{"휴게소명":"범위밖","위도":"10","경도":"127"},{"위도":"37.5","경도":"127.0"},
+          {"졸음쉼터명":"옛형식","위도":"37.5","경도":"127.0"}],"_meta":{"collectedAt":"2026-01-02"}}"""
+        val d = ShelterRepo.parse(j, "R")
+        assertEquals(listOf("가(나)", "옛형식"), d.shelters.map { it.name })
+        assertEquals(listOf(true, false), d.shelters.map { it.isRestArea })
+        assertEquals("R000", d.shelters[0].id); assertEquals("미상", d.asOf); assertEquals("2026-01-02", d.collectedAt); assertTrue(d.sample) // sample 열이 없으면 샘플로 간주(안전 쪽)
+    }
+
+    @Test fun loader_mergesBoth_fallsBackToSample_onMissingOrBroken() {
+        fun open(files: Map<String, String>) = { n: String -> (files[n] ?: throw java.io.FileNotFoundException(n)).byteInputStream() }
+        val real = mapOf("rest_shelters.json" to asset("rest_shelters.json"), "rest_areas.json" to asset("rest_areas.json"), "rest_shelters_sample.json" to asset("rest_shelters_sample.json"))
+        assertEquals(468, com.hmgcarapp.wakemate.app.AppController.loadShelterDataset(open(real))!!.shelters.size)
+        assertEquals(253, com.hmgcarapp.wakemate.app.AppController.loadShelterDataset(open(real - "rest_areas.json"))!!.shelters.size)
+        val s1 = com.hmgcarapp.wakemate.app.AppController.loadShelterDataset(open(real - "rest_shelters.json"))!!
+        assertTrue(s1.sample && s1.shelters.size == 5)
+        val s2 = com.hmgcarapp.wakemate.app.AppController.loadShelterDataset(open(real + ("rest_shelters.json" to "{깨짐")))!!
+        assertTrue(s2.sample && s2.shelters.size == 5)
+        assertNull(com.hmgcarapp.wakemate.app.AppController.loadShelterDataset(open(emptyMap())))
+    }
+
+    @Test fun spokenName_resolvesParenthesisAsDestination_andLineShowsDirection() {
+        val inch = rests.shelters.first { it.name == "강릉(인천)" }
+        assertEquals("강릉 인천 방면", inch.spokenName); assertEquals("강릉(인천)", inch.name)
+        assertEquals("고삼호수", rests.shelters.first { it.name == "고삼호수" }.spokenName)
+        val t = com.hmgcarapp.wakemate.domain.WakeText.s3(85, com.hmgcarapp.wakemate.domain.NearShelter(inch, 3.0), false, null, false)
+        assertTrue(t, t.contains("강릉 인천 방면, 상행, 약 3.0킬로미터예요"))
+        val both = rests.shelters.first { it.direction == "양방향" }
+        assertTrue(com.hmgcarapp.wakemate.domain.WakeText.s3(85, com.hmgcarapp.wakemate.domain.NearShelter(both, 1.0), false, null, false).contains(", 양방향, 약"))
+        val none = rests.shelters.first { it.direction.isEmpty() }
+        assertTrue(!com.hmgcarapp.wakemate.domain.WakeText.s3(85, com.hmgcarapp.wakemate.domain.NearShelter(none, 1.0), false, null, false).contains(", ,"))
+    }
+
+    @Test fun voice_realData_saysSnapshotNotRealtime_andKind() {
+        val n = com.hmgcarapp.wakemate.domain.NearShelter(rests.shelters[0], 2.0)
+        val t = com.hmgcarapp.wakemate.domain.WakeText.s3(85, n, false, null, false)
+        assertTrue(t, t.contains("가까운 휴게소, 강릉 강릉 방면, 하행, 약 2.0킬로미터예요.") && t.contains("진행 방향은 반영하지 않으니 방향을 확인하세요") && t.contains("공공데이터 스냅샷") && t.contains("실시간 정보는 아니에요") && !t.contains("시연용"))
     }
 }

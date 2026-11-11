@@ -19,3 +19,8 @@ google-services.json
 
 # release 서명 키(로컬 전용, 커밋 금지)
 .signing/
+
+# 데이터 스냅샷 수집 키·상태(커밋 금지)
+.snapshot.env
+.snapshot-calls.json
+*.snapshot.env

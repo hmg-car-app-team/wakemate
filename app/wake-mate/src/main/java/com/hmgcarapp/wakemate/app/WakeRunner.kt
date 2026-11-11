@@ -85,7 +85,7 @@ class WakeRunner(
             }
             is WakeEffect.ApplyHvac -> {
                 hvacJob?.cancel()
-                val j = launchLazy { guarded(fx.id) { applyHvac(fx.id) } }; hvacJob = j; j.start()
+                val j = launchLazy { guarded(fx.id) { applyHvac(fx.id, fx.ventOnly) } }; hvacJob = j; j.start()
             }
             is WakeEffect.StartNavi -> {
                 val body: suspend () -> Unit = {
@@ -108,11 +108,11 @@ class WakeRunner(
     }
 
     /** 공조 조정: 현재 값·capability 로 계획을 세워 쓰고, 성공 콜백을 받은 항목만 성공으로 보고한다. */
-    private suspend fun applyHvac(id: Long) {
+    private suspend fun applyHvac(id: Long, ventOnly: Boolean = false) {
         val snap = hvac.snapshot()
-        val usable = snap.connected && snap.caps.anyWritable
-        val base = ui().wake.baseTempC ?: snap.now.tempC
-        val targets = if (usable) HvacPlan.plan(snap.now, snap.caps, base) else HvacTargets()
+        val usable = HvacPlan.usable(snap.connected, snap.caps, ventOnly)
+        val base = if (ventOnly) null else ui().wake.baseTempC ?: snap.now.tempC
+        val targets = if (!usable) HvacTargets() else if (ventOnly) HvacPlan.planVent(snap.now, snap.caps) else HvacPlan.plan(snap.now, snap.caps, base)
         val results: List<ItemResult> = if (!usable || targets.isEmpty) emptyList() else {
             withTimeoutOrNull(HVAC_WAIT_MS) {
                 suspendCancellableCoroutine<List<ItemResult>> { cont ->
@@ -121,7 +121,7 @@ class WakeRunner(
                 }
             } ?: emptyList()
         }
-        dispatch(WakeEvent.HvacApplied(id, results, targets, usable, base))
+        dispatch(WakeEvent.HvacApplied(id, results, targets, usable, base, ventOnly))
     }
 
     /**

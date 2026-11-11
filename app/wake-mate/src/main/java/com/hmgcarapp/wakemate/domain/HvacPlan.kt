@@ -27,6 +27,14 @@ object HvacPlan {
     const val TEMP_DROP_C = 2f
     const val FAN_FRACTION = 0.8
 
+    /** 1단계 제안 수락: 외기 순환만 바꾼다(풍량·온도는 2단계에서). */
+    fun planVent(now: HvacNow, caps: HvacCaps): HvacTargets =
+        HvacTargets(recirc = if (caps.recirc && now.recirc != false) false else null)
+
+    /** 공조 조정을 시도할 수 있는지. 외기 전환만 하는 제안(ventOnly)은 외기 순환을 쓸 수 있어야 한다(다른 항목만 쓸 수 있으면 아무것도 못 한다). */
+    fun usable(connected: Boolean, caps: HvacCaps, ventOnly: Boolean): Boolean =
+        connected && caps.anyWritable && (!ventOnly || caps.recirc)
+
     fun plan(now: HvacNow, caps: HvacCaps, baseTempC: Float? = null): HvacTargets {
         val recirc = if (caps.recirc && now.recirc != false) false else null
         val fanTarget = ceil(caps.fanMax * FAN_FRACTION).toInt().coerceIn(caps.fanMin, caps.fanMax)
@@ -44,7 +52,15 @@ object HvacPlan {
 /** 쓰기 오류 코드 해석(AAOS CAR_SET_PROPERTY_ERROR_CODE_*: 0 UNKNOWN, 1 INVALID_ARG, 2 NOT_AVAILABLE, 3 TRY_AGAIN, 4 TIMEOUT, 5 ACCESS_DENIED). */
 object HvacErrors {
     private val CODE = Regex("error\\s*code\\s*[:=]?\\s*(\\d+)", RegexOption.IGNORE_CASE)
-    fun code(text: String?): Int? = text?.let { CODE.find(it)?.groupValues?.get(1)?.toIntOrNull() }
+    /** Vehicle SDK ErrorCode.ERROR_DRIVING_RESTRICTED 의 id(vehicle-data 의 ErrorCode 열거형). 주행 제한으로 쓰기가 거부됨. */
+    const val DRIVING_RESTRICTED = 50001
+    private const val DRIVING_RESTRICTED_NAME = "ERROR_DRIVING_RESTRICTED"
+    /** Vehicle SDK 의 VehicleException 은 message 에 코드 이름을 담는다(예: ERROR_DRIVING_RESTRICTED). 이름 또는 "error code N" 을 해석한다. */
+    fun code(text: String?): Int? {
+        if (text == null) return null
+        if (text.contains(DRIVING_RESTRICTED_NAME)) return DRIVING_RESTRICTED
+        return CODE.find(text)?.groupValues?.get(1)?.toIntOrNull()
+    }
     fun codeOf(t: Throwable): Int? {
         var e: Throwable? = t; var d = 0
         while (e != null && d++ < 5) { code(e.message)?.let { return it }; e = e.cause }
@@ -56,6 +72,7 @@ object HvacErrors {
         3 -> "잠시 후 다시 시도해야 해요"
         4 -> "차량 응답이 늦었어요"
         5 -> "공조를 바꿀 권한이 없어요"
+        DRIVING_RESTRICTED -> "주행 중에는 차량 정책상 앱이 공조를 바꿀 수 없어요. 창문을 열어 환기해 주세요"
         else -> "알 수 없는 오류예요"
     }
 }
@@ -67,7 +84,8 @@ object HvacReport {
     private fun topic(k: String) = when (k) { "recirc" -> "외기 순환은"; "fan" -> "바람 세기는"; "temp" -> "설정 온도는"; else -> "${k}은(는)" }
 
     /** 음성·배너용 한 문단. */
-    fun summary(results: List<ItemResult>, planned: HvacTargets, connected: Boolean): String {
+    fun summary(results: List<ItemResult>, planned: HvacTargets, connected: Boolean, ventOnly: Boolean = false): String {
+        if (!connected && ventOnly) return "공조에 연결하지 못했거나 이 차량에서는 앱이 외기 전환을 할 수 없어요. 창문을 열어 환기해 주세요"
         if (!connected) return "공조에 연결하지 못했거나 이 차량에서는 앱이 바꿀 수 없어요. 창문을 열어 환기해 주세요"
         if (planned.isEmpty && results.isEmpty()) return "공조는 이미 환기에 알맞은 상태예요"
         if (results.isEmpty()) return "공조 응답을 받지 못했어요. 창문을 열어 환기해 주세요"
