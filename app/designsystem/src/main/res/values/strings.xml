@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pleos_driving_restricted">Available only while parked, for your safety</string>
+    <string name="pleos_keyboard_restricted">Typing is unavailable while driving</string>
+    <string name="pleos_clear">Clear</string>
+    <string name="pleos_decrease">Decrease</string>
+    <string name="pleos_increase">Increase</string>
+    <string name="pleos_back">Back</string>
+    <string name="pleos_loading">Loading</string>
+    <string name="pleos_on">On</string>
+    <string name="pleos_off">Off</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 차량(AAOS)에서만 존재. 일반 기기에서도 설치되도록 required=false -->
+    <application>
+        <uses-library android:name="android.car" android:required="false" />
+    </application>
+</manifest>

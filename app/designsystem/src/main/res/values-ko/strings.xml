@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pleos_driving_restricted">안전을 위해 정차 중에만 사용할 수 있습니다</string>
+    <string name="pleos_keyboard_restricted">주행 중에는 입력할 수 없습니다</string>
+    <string name="pleos_clear">지우기</string>
+    <string name="pleos_decrease">줄이기</string>
+    <string name="pleos_increase">늘리기</string>
+    <string name="pleos_back">뒤로</string>
+    <string name="pleos_loading">불러오는 중</string>
+    <string name="pleos_on">켜짐</string>
+    <string name="pleos_off">꺼짐</string>
+</resources>

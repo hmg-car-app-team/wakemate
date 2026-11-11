@@ -1,0 +1,29 @@
+pluginManagement {
+    repositories {
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        // Pleos Playground SDK (Vehicle, NaviHelper, FusedLocation, TextToSpeech, SpeechToText)
+        maven("https://nexus-playground.pleos.ai/repository/maven-releases/")
+    }
+}
+
+rootProject.name = "wakemate"
+
+include(":core")
+include(":designsystem")
+include(":wake-mate")

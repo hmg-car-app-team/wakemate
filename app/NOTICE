@@ -1,0 +1,8 @@
+서드파티 고지
+
+1. designsystem/ : Pleos 디자인시스템 0.2.0 소스 복사본. 이 공모전 출품을 위해 원본 리포(비공개)에서 복사했으며 코드는 수정하지 않았습니다.
+2. 번들 폰트 Asta Sans (designsystem/src/main/res/font/asta_sans.ttf)
+   Copyright 2024 The Asta Sans Project Authors (https://github.com/42dot/Asta-Sans)
+   SIL Open Font License 1.1 - 전문: licenses/AstaSans-OFL.txt
+3. Pleos Playground SDK(Vehicle, NaviHelper, FusedLocation, TextToSpeech, SpeechToText)는 소스를 포함하지 않으며 빌드 시 공개 Maven 저장소에서 내려받습니다.
+4. 그 밖의 AndroidX / Jetpack Compose / Kotlin / kotlinx.coroutines 는 Apache License 2.0 으로 빌드 시 내려받습니다.
