@@ -4,7 +4,13 @@ import com.hmgcarapp.wakemate.domain.Calibration
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Settings(val voiceReply: Boolean = true, val hvacControl: Boolean = true, val beep: Boolean = true)
+data class Settings(
+    val voiceReply: Boolean = true, val hvacControl: Boolean = true, val beep: Boolean = true,
+    /** 백그라운드 감시(화면 밖 서비스·설정 시 부팅 시작). 기본 꺼짐, 고지문 동의 후에만 true. */
+    val backgroundWatch: Boolean = false,
+    /** 동의한 고지문 버전(0 = 동의 없음). 끄면 0 으로 돌린다(동의 철회). */
+    val backgroundConsentVer: Int = 0,
+)
 
 /** 휴식 기록: 운전자 식별 정보 없이 시각과 시간만 저장한다. */
 data class RestRecord(val atWallMs: Long, val drivingMin: Int, val restMin: Int, val sim: Boolean = false)
@@ -30,6 +36,7 @@ object StateCodec {
     fun encode(p: Persisted): JSONObject = JSONObject()
         .put("v", VERSION)
         .put("voiceReply", p.settings.voiceReply).put("hvacControl", p.settings.hvacControl).put("beep", p.settings.beep)
+        .put("bgWatch", p.settings.backgroundWatch).put("bgConsentVer", p.settings.backgroundConsentVer)
         .put("calOffset", p.calibration.offset).put("calCount", p.calibration.feedbackCount)
         .put("quizTotal", p.quiz.total).put("quizPassed", p.quiz.passed).put("quizLastMs", p.quiz.lastResponseMs ?: -1L)
         .put("drivingMs", p.drivingMs).put("savedAt", p.savedAtWallMs)
@@ -47,7 +54,7 @@ object StateCodec {
         val last = o.optLong("quizLastMs", -1L)
         Parsed(
             Persisted(
-                Settings(o.optBoolean("voiceReply", true), o.optBoolean("hvacControl", true), o.optBoolean("beep", true)),
+                Settings(o.optBoolean("voiceReply", true), o.optBoolean("hvacControl", true), o.optBoolean("beep", true), o.optBoolean("bgWatch", false), o.optInt("bgConsentVer", 0).coerceAtLeast(0)),
                 Calibration(o.optInt("calOffset", 0).coerceIn(0, Calibration.MAX_OFFSET), o.optInt("calCount", 0).coerceAtLeast(0)),
                 rests.takeLast(MAX_RESTS),
                 QuizStats(o.optInt("quizTotal", 0).coerceAtLeast(0), o.optInt("quizPassed", 0).coerceAtLeast(0), last.takeIf { it >= 0 }),

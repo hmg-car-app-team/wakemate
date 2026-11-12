@@ -18,7 +18,12 @@
     <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- 포그라운드 서비스·알림·부팅 수신기·인터넷은 사용하지 않아 선언하지 않는다(위치 이력·네트워크 전송 없음) -->
+    <!-- 백그라운드 감시(설정에서 동의 후 켠 경우만): 비위치 유형(specialUse) 포그라운드 서비스 + 지속 알림 + 부팅 완료 수신기.
+         위치 유형 서비스·FOREGROUND_SERVICE_LOCATION·ACCESS_BACKGROUND_LOCATION·LOCKED_BOOT_COMPLETED·인터넷은 선언하지 않는다(위치 이력·네트워크 전송 없음) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="false"
@@ -41,5 +46,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 졸음 감시 유지용 서비스: 차량 신호만 사용(위치 없음). 외부에서 시작 불가 -->
+        <service
+            android:name=".app.WatchService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="운전 중 졸음 위험 감시(차속·조향 등 차량 신호만 사용, 위치 미사용). 사용자가 설정에서 동의하고 켠 경우에만 동작하며 지속 알림을 표시한다" />
+        </service>
+
+        <!-- 부팅 완료(잠금 해제 후) 시, 설정에서 백그라운드 감시를 켠 경우에만 서비스를 시작 -->
+        <receiver android:name=".app.BootReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

@@ -2,6 +2,7 @@ package com.hmgcarapp.wakemate.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,8 @@ import com.hmgcarapp.pleos.designsystem.theme.PleosSpacing
 import com.hmgcarapp.pleos.designsystem.theme.PleosTheme
 import com.hmgcarapp.pleos.designsystem.theme.PleosWindowMode
 import com.hmgcarapp.wakemate.app.AppController
+import com.hmgcarapp.wakemate.app.BackgroundWatch
+import com.hmgcarapp.wakemate.app.WakeRuntime
 import com.hmgcarapp.wakemate.app.Page
 import com.hmgcarapp.wakemate.app.UiState
 import com.hmgcarapp.wakemate.domain.Alert
@@ -274,6 +277,35 @@ private fun SettingsPage(c: AppController, s: UiState) {
         PleosSwitch(checked = st.beep, onCheckedChange = { c.setBeep(it) }, label = "경고음", modifier = Modifier.testTag("set_beep"))
         PleosButton("개인 보정 초기화", onClick = { c.resetCalibration() }, hierarchy = PleosButtonHierarchy.Secondary, enabled = s.p.calibration.offset > 0)
     }
+    PleosPanel(Modifier.fillMaxWidth(), title = "백그라운드 감시") {
+        var askBg by remember { mutableStateOf(false) }
+        var notifHint by remember { mutableStateOf(false) }
+        val ctx = androidx.compose.ui.platform.LocalContext.current.applicationContext
+        // 안내가 떠 있는 동안 권한을 다시 확인해, 시스템 설정에서 허용하고 돌아오면 안내를 지운다
+        LaunchedEffect(notifHint) {
+            while (notifHint) {
+                kotlinx.coroutines.delay(BackgroundWatch.HINT_RECHECK_MS)
+                if (WakeRuntime.notificationsGranted(ctx)) notifHint = false
+            }
+        }
+        PleosSwitch(
+            checked = st.backgroundWatch,
+            onCheckedChange = { on -> if (!on) { notifHint = false; c.disableBackgroundWatch() } else if (WakeRuntime.notificationsGranted(ctx)) { notifHint = false; askBg = true } else notifHint = true },
+            label = BackgroundWatch.SWITCH_LABEL, modifier = Modifier.testTag("set_background_watch"),
+        )
+        Txt(BackgroundWatch.SWITCH_HINT, PleosTheme.typography.labelMedium, secondary = true)
+        Txt(BackgroundWatch.NOTICE, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("background_notice"))
+        if (notifHint) Txt(BackgroundWatch.NOTIF_DENIED_HINT, PleosTheme.typography.labelMedium, modifier = Modifier.testTag("background_notif_hint"))
+        if (askBg) PleosPopup(
+            title = BackgroundWatch.POPUP_TITLE, description = BackgroundWatch.NOTICE_SUMMARY,
+            confirmLabel = BackgroundWatch.CONFIRM_LABEL, onConfirm = { askBg = false; c.enableBackgroundWatch() },
+            onDismissRequest = { askBg = false }, cancelLabel = "취소",
+        ) {
+            Column(Modifier.heightIn(max = PleosTheme.dimensions.popupMaxHeight * 0.5f).verticalScroll(rememberScrollState()).testTag("background_notice_popup")) {
+                Txt(BackgroundWatch.NOTICE, PleosTheme.typography.labelMedium, secondary = true)
+            }
+        }
+    }
     PleosPanel(Modifier.fillMaxWidth(), title = "공조 연결") {
         val h = s.hvac
         Txt(
@@ -287,7 +319,7 @@ private fun SettingsPage(c: AppController, s: UiState) {
         Txt("공조 전원: " + (h.now.power?.let { if (it) "켜짐" else "꺼짐(풍량 변경이 거부될 수 있어요)" } ?: "알 수 없음"), PleosTheme.typography.labelMedium, secondary = true)
     }
     PleosPanel(Modifier.fillMaxWidth(), title = "저장된 기록과 개인정보") {
-        Txt("이 기기 안에만 저장해요: 개인 보정값, 휴식 시각·시간, 퀴즈 횟수, 설정, 누적 주행 시간(평문). 위치·좌표·음성은 저장하지 않아요.", PleosTheme.typography.labelMedium, secondary = true)
+        Txt("이 기기 안에만 저장해요: 개인 보정값, 휴식 시각·시간, 퀴즈 횟수, 설정(백그라운드 감시 동의 포함), 누적 주행 시간(평문). 위치·좌표·음성은 저장하지 않아요.", PleosTheme.typography.labelMedium, secondary = true)
         if (s.corruptKept) Txt("저장 파일이 손상돼 처음 상태로 시작했어요. 아래 삭제로 지울 수 있어요.", PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("corrupt_kept"))
         if (s.saveHeld) Txt("저장하지 못해 이번 실행에서는 저장하지 않아요. 앱을 다시 시작하거나 삭제하면 다시 저장해요.", PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("save_held"))
         var ask by remember { mutableStateOf(false) }
@@ -303,7 +335,7 @@ private fun SettingsPage(c: AppController, s: UiState) {
         Txt("졸음쉼터·휴게소: 한국도로공사 공공데이터(공공데이터포털 15028203, 15025446; 이용허락범위 제한 없음)를 가공한 스냅샷이에요. 실시간 정보가 아니며 최신성·정확성은 보증하지 않아요.", PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("data_source"))
     }
     PleosPanel(Modifier.fillMaxWidth(), title = "알아두세요") {
-        Txt("앱이 다른 화면에 가려지면 음성 안내·음성 인식이 멈춰요. 이 앱은 운전자 보조 도구이며 졸음 운전을 막을 수 없어요. 졸리면 즉시 안전한 곳에 정차해 쉬세요.", PleosTheme.typography.labelMedium, secondary = true)
+        Txt(BackgroundWatch.VOICE_LIMIT_NOTE + " 이 앱은 운전자 보조 도구이며 졸음 운전을 막을 수 없어요. 졸리면 즉시 안전한 곳에 정차해 쉬세요.", PleosTheme.typography.labelMedium, secondary = true)
     }
     if (c.debuggable) DebugPanel(s)
 }

@@ -48,11 +48,43 @@ class SourceRulesTest {
             assertFalse("${f.name}: 평문 http", Regex("\"http://").containsMatchIn(c))
             assertFalse("${f.name}: API 키 사용", c.contains("API_KEY") || c.contains("apiKey"))
         }
-        val manifest = File("src/main/AndroidManifest.xml").readText()
-        listOf("INTERNET", "FOREGROUND_SERVICE", "RECEIVE_BOOT_COMPLETED", "POST_NOTIFICATIONS", "RECORD_AUDIO", "READ_CONTACTS").forEach { assertFalse("불필요 권한 $it", manifest.contains(it)) }
+        val manifest = File("src/main/AndroidManifest.xml").readText().replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), "")
+        listOf("INTERNET", "RECORD_AUDIO", "READ_CONTACTS", "FOREGROUND_SERVICE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "LOCKED_BOOT_COMPLETED", "SYSTEM_ALERT_WINDOW", "USE_FULL_SCREEN_INTENT").forEach { assertFalse("불필요 권한 $it", manifest.contains(it)) }
         assertTrue(manifest.contains("android:name=\"distractionOptimized\" android:value=\"true\""))
         assertTrue(File("src/main/res/xml/network_security_config.xml").readText().contains("cleartextTrafficPermitted=\"false\""))
         assertFalse(File("build.gradle.kts").readText().contains("API_KEY"))
+    }
+
+    @Test fun backgroundWatch_isNonLocationAndBootOnlyAfterUnlock() {
+        val m = File("src/main/AndroidManifest.xml").readText().replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), "")
+        assertFalse("위치 유형 서비스 금지", Regex("foregroundServiceType=\"[^\"]*location").containsMatchIn(m))
+        assertTrue(m.contains("foregroundServiceType=\"specialUse\"") && m.contains("PROPERTY_SPECIAL_USE_FGS_SUBTYPE") && m.contains("FOREGROUND_SERVICE_SPECIAL_USE"))
+        assertEquals("서비스는 1개, 외부 노출 금지", 1, Regex("<service\\b").findAll(m).count())
+        assertTrue(Regex("<service[^>]*exported=\"false\"").containsMatchIn(m))
+        assertTrue(Regex("<receiver[^>]*exported=\"false\"").containsMatchIn(m))
+        val actions = Regex("<action android:name=\"([^\"]+)\"").findAll(m.substringAfter("<receiver")).map { it.groupValues[1] }.toList()
+        assertEquals(listOf("android.intent.action.BOOT_COMPLETED"), actions)
+    }
+
+    @Test fun backgroundWatchCode_neverTouchesLocationOrStartsUi() {
+        listOf("app/BootReceiver.kt", "app/WatchService.kt", "app/WakeRuntime.kt", "app/BackgroundWatch.kt").forEach {
+            val c = code(File(root, it))
+            assertFalse("$it: 위치 접근 금지", Regex("ocation|FusedLocation|GeoPoint").containsMatchIn(c))
+            assertFalse("$it: 화면 자동 표시 금지", Regex("startActivity|fullScreenIntent|FullScreenIntent|SYSTEM_ALERT_WINDOW").containsMatchIn(c))
+        }
+        // 위치 구독은 화면이 보일 때만
+        val ctl = code(File(root, "app/AppController.kt"))
+        assertTrue(ctl.contains("locationVisible.flatMapLatest { visible -> if (visible) signals.location else emptyFlow() }"))
+        assertEquals(1, Regex("signals\\.location").findAll(ctl).count())
+        val act = code(File(root, "MainActivity.kt"))
+        assertTrue(act.contains("setScreenVisible(true)") && act.contains("setScreenVisible(false)"))
+    }
+
+    @Test fun bootReceiverSwallowsFailures_noRetry() {
+        val c = code(File(root, "app/BootReceiver.kt"))
+        assertTrue(c.contains("catch (t: Throwable)"))
+        assertFalse(Regex("postDelayed|AlarmManager|WorkManager|while \\(|retry", RegexOption.IGNORE_CASE).containsMatchIn(c))
+        assertTrue(code(File(root, "app/WatchService.kt")).contains("START_NOT_STICKY"))
     }
 
     @Test fun logsNeverPrintCoordinatesOrSpeechOutsideDebuggable() {

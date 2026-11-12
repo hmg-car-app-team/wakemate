@@ -18,6 +18,12 @@ enum class WriteResult { WROTE, UNCHANGED, HELD, FAILED }
 class StateStore(private val store: LocalJsonStore, private val name: String = "wakemate_state") {
     data class Restored(val p: Persisted, val corrupt: Boolean, val quarantined: Boolean, val readError: Boolean)
 
+    companion object {
+        /** 부팅 수신기용 읽기 전용 조회: 정리·격리·쓰기 없이 설정만 읽는다. 없거나 읽을 수 없거나 손상이면 null(= 설정 없음으로 취급). */
+        fun peekSettings(store: LocalJsonStore, name: String = "wakemate_state"): Settings? =
+            (store.loadResult(name) as? StoreLoad.Ok)?.let { StateCodec.parse(it.text).takeIf { r -> !r.corrupt }?.p?.settings }
+    }
+
     private val lock = Any()
     /** false = 읽기 오류 또는 쓰기 실패로 이번 실행 저장 보류. 기록 모두 삭제([clearAll]) 성공 시 다시 true. */
     @Volatile var writable: Boolean = true

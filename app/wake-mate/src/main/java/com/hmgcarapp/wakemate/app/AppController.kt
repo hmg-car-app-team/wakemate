@@ -55,7 +55,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,6 +69,7 @@ import java.util.Calendar
  * 깨우기 상태 전이는 [WakeFlow] 가 하고([dispatch]), 효과 실행은 [WakeRunner] 가 한다.
  * 시계: 지속시간·간격·쿨다운은 [monoClock](단조), 하루 중 시각(시간대 위험)·저장 만료만 [wallClock].
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class AppController(
     private val context: Context,
     val signals: CarSignals,
@@ -76,6 +80,8 @@ class AppController(
     private val beeper: Beeper = ToneBeeper(),
     private val wallClock: () -> Long = System::currentTimeMillis,
     private val monoClock: () -> Long = SystemClock::elapsedRealtime,
+    /** 설정이 복원·변경되면 백그라운드 감시 서비스를 켜거나 끈다(기본 무동작: 테스트용). */
+    private val serviceControl: (Settings) -> Unit = {},
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + CoroutineExceptionHandler { _, t -> HmgLog.w("App", "코루틴 예외(무시): $t") })
     private val stateStore = StateStore(LocalJsonStore.forApp(context))
@@ -101,6 +107,8 @@ class AppController(
     private var simJob: Job? = null
     private var saveJob: Job? = null
     private var simReceiver: BroadcastReceiver? = null
+    private val locationVisible = MutableStateFlow(false)
+    private var pendingBgOff = false
     private val restored: Boolean get() = !_state.value.loading
 
     init {
@@ -124,8 +132,8 @@ class AppController(
             steering.angles().catch { HmgLog.w("Steering", "flow 실패 $it") }.collect { a -> if (_state.value.sim.pattern == null) { lastAngle = a; lastAngleAt = monoClock() } } // 패턴 시연 중에는 실제 값을 쓰지 않는다
         }
         scope.launch {
-            // 위치는 가까운 쉼터 계산에만 쓰고 저장·로그하지 않는다.
-            signals.location.catch { HmgLog.w("Location", "flow 실패 $it") }.collect { g: GeoPoint ->
+            // 위치는 가까운 쉼터 계산에만 쓰고 저장·로그하지 않는다. 화면이 보일 때만 구독한다(백그라운드 위치 수집 금지).
+            locationVisible.flatMapLatest { visible -> if (visible) signals.location else emptyFlow() }.catch { HmgLog.w("Location", "flow 실패 $it") }.collect { g: GeoPoint ->
                 _state.update { it.copy(origin = LatLon(g.latitude, g.longitude), originAtMs = monoClock(), originHeading = ShelterRepo.usableHeading(g.heading, lastSpeed)) }
                 refreshNearby()
             }
@@ -239,6 +247,25 @@ class AppController(
     fun setVoiceReply(on: Boolean) = parkedOnly { updateP { it.copy(settings = it.settings.copy(voiceReply = on)) }; pushOptions() }
     fun setHvacControl(on: Boolean) = parkedOnly { updateP { it.copy(settings = it.settings.copy(hvacControl = on)) }; pushOptions() }
     fun setBeep(on: Boolean) = parkedOnly { updateP { it.copy(settings = it.settings.copy(beep = on)) } }
+    /** 고지문 동의 후 켜기(정차 중에만). 동의 버전을 함께 저장하고 서비스를 시작한다. */
+    fun enableBackgroundWatch() = parkedOnly {
+        updateP { it.copy(settings = it.settings.copy(backgroundWatch = true, backgroundConsentVer = BackgroundWatch.NOTICE_VERSION)) }
+        serviceControl(_state.value.p.settings)
+    }
+
+    /** 끄기 = 동의 철회. 알림의 '끄기'와 설정 스위치가 같은 경로이며 주행 중에도 항상 동작한다. 복원 전이면 복원 직후 적용한다. */
+    fun disableBackgroundWatch() {
+        if (!restored) { pendingBgOff = true; serviceControl(Settings()); return }
+        updateP { it.copy(settings = it.settings.copy(backgroundWatch = false, backgroundConsentVer = 0)) }
+        serviceControl(_state.value.p.settings)
+    }
+
+    /** 화면 표시 여부: 위치(쉼터 계산) 구독은 화면이 보일 때만. 숨겨지면 보관 중인 위치도 버린다. */
+    fun setScreenVisible(v: Boolean) {
+        locationVisible.value = v
+        if (!v) _state.update { it.copy(origin = null, originAtMs = null, nearby = emptyList()) }
+    }
+
     private fun pushOptions() { val s = _state.value.p.settings; dispatch(WakeEvent.Options(s.voiceReply, s.hvacControl)) }
 
     /** 터치로 '졸리지 않아요'(정차 시). 음성으로는 깨우기 질문(외기 제안이 아닌 경우)에 '괜찮아'라고 답한다. 첫 1단계 외기 제안에서 단독 '괜찮아요'는 거절이라 보정되지 않는다. */
@@ -345,8 +372,11 @@ class AppController(
         if (res.readError) HmgLog.w("Store", "저장 파일 읽기 오류 -> 기본값으로 동작, 이번 세션 저장 보류(원본 유지)")
         // 누적 주행 시간은 저장 뒤 15분 넘게 지났으면 휴식한 것으로 보고 버린다(벽시계는 이 저장 만료에만 사용)
         driveClock.restore(DriveRestore.restoredDrivingMs(res.p.drivingMs, res.p.savedAtWallMs, wallClock()))
-        _state.update { it.copy(p = res.p, loading = false, saveHeld = res.readError, corruptKept = res.corrupt && res.quarantined) }
+        val pp = if (pendingBgOff) res.p.copy(settings = res.p.settings.copy(backgroundWatch = false, backgroundConsentVer = 0)) else res.p
+        _state.update { it.copy(p = pp, loading = false, saveHeld = res.readError, corruptKept = res.corrupt && res.quarantined) }
         pushOptions()
+        if (pendingBgOff) { pendingBgOff = false; scheduleSave() }
+        serviceControl(pp.settings)
     }
 
     private fun scheduleSave() {
