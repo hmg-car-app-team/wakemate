@@ -112,14 +112,21 @@ class SourceRulesTest {
 }
 
 class ShelterNoticeTest {
-    @org.junit.Test fun fictionalSentenceOnlyForSampleData() {
-        org.junit.Assert.assertEquals("직선거리 기준이며 실제 도로 거리는 반영하지 않아요. 주행 중 10km/h 이상이고 방위가 유효하면 진행 방향 앞쪽 시설 위주로, 아니면 방향은 반영하지 않아요. 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요.", com.hmgcarapp.wakemate.ui.shelterNotice(true))
-        org.junit.Assert.assertEquals("직선거리 기준이며 실제 도로 거리는 반영하지 않아요. 주행 중 10km/h 이상이고 방위가 유효하면 진행 방향 앞쪽 시설 위주로, 아니면 방향은 반영하지 않아요. 실시간 정보가 아니에요.", com.hmgcarapp.wakemate.ui.shelterNotice(false))
-        org.junit.Assert.assertEquals("시연용 가상 샘플 데이터", com.hmgcarapp.wakemate.ui.shelterBadge(true, "2026-11-11"))
-        org.junit.Assert.assertEquals("실시간 아님 · 기준일 2026-02-25", com.hmgcarapp.wakemate.ui.shelterBadge(false, "2026-02-25"))
-        org.junit.Assert.assertTrue("배지는 말줄임 없이 들어가도록 짧게", com.hmgcarapp.wakemate.ui.shelterBadge(false, "2026-02-25").length <= 24)
-        org.junit.Assert.assertEquals("공공데이터 스냅샷 · 수집일 2026-11-11 · 한국도로공사", com.hmgcarapp.wakemate.ui.shelterSourceLine(false, "2026-11-11"))
-        org.junit.Assert.assertNull(com.hmgcarapp.wakemate.ui.shelterSourceLine(true, "2026-11-11"))
+    @org.junit.Test fun screensHaveNoSideNoticesAboutDataNatureOrPolicy() {
+        val ui = java.io.File("src/main/java/com/hmgcarapp/wakemate/ui/Screens.kt").readText()
+        listOf("shelterNotice", "shelterBadge", "shelterSourceLine", "sim_badge", "driving_notice", "shelter_source", "data_source", "corrupt_kept", "save_held",
+            "시연 신호가 섞여", "직접 측정한 값", "실시간 아님", "기준일", "직선거리 기준", "형식 확인용 가상", "[시연]", "개인차가 있어요", "근사치예요").forEach {
+            org.junit.Assert.assertFalse("부수적 설명 문구/배지 제거: $it", ui.contains(it))
+        }
+        org.junit.Assert.assertTrue("유지: 백그라운드 감시 고지·권한 안내", ui.contains("BackgroundWatch.NOTICE") && ui.contains("BackgroundWatch.NOTIF_DENIED_HINT") && ui.contains("set_background_watch"))
+        org.junit.Assert.assertTrue("유지: 위험지수 항목 라벨", ui.contains("졸음 위험지수") && ui.contains("위험지수 구성"))
+    }
+
+    @org.junit.Test fun settingsHasNoCreditDiagnosticsOrDeletePanels() {
+        val ui = java.io.File("src/main/java/com/hmgcarapp/wakemate/ui/Screens.kt").readText()
+        listOf("DATA_CREDIT", "data_credit", "공조 연결", "hvac_status", "clear_all", "저장된 기록", "개인 보정 값", "navi_reason", "r.thresholds", "background_notice\"").forEach {
+            org.junit.Assert.assertFalse("설정/상태 군더더기 제거: $it", ui.contains(it))
+        }
     }
 
     @org.junit.Test fun distanceSpeechBoundary() {

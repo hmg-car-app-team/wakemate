@@ -98,7 +98,7 @@ class WakeRunner(
                 }
                 if (fx.id != null) alert(fx.id) { body() } else launchInto({ guidanceJob = it }) { guarded(null) { body() } }
             }
-            is WakeEffect.SpeakResult -> alert(fx.id) { speaker.speakAndAwait(fx.text); dispatch(WakeEvent.ResultSpoken(fx.id)) }
+            is WakeEffect.SpeakResult -> alert(fx.id) { if (fx.text.isNotBlank()) speaker.speakAndAwait(fx.text); dispatch(WakeEvent.ResultSpoken(fx.id)) }
             is WakeEffect.ScheduleExpiry -> { expiryJob?.cancel(); expiryJob = scope.launch { delay(fx.delayMs); dispatch(WakeEvent.ExpiryElapsed(fx.id)) } }
             is WakeEffect.ClearNaviFinished -> if (fx.reqId == null) navi.clearFinished() else navi.clearFinished(fx.reqId)
             WakeEffect.ApplyNotSleepy -> onNotSleepy()

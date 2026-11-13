@@ -20,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import com.hmgcarapp.core.drive.DriveState
-import com.hmgcarapp.core.drive.Gear
 import com.hmgcarapp.core.ui.rememberDriveSnapshot
 import com.hmgcarapp.pleos.designsystem.component.PleosButton
 import com.hmgcarapp.pleos.designsystem.component.PleosButtonHierarchy
@@ -73,7 +72,6 @@ fun WakeMateApp(c: AppController) {
     // 주행 중에는 토스트를 보류하고 정차 시 표시한다
     LaunchedEffect(s.wake.message, driving) { if (!driving) s.wake.message?.let { toast.show(it); c.clearMessage() } }
     LaunchedEffect(driving) { if (driving) toast.dismiss() }
-    val notice = if (snap.inputs.gear == Gear.UNKNOWN && snap.inputs.uxRequiresDistractionOptimization == null) "차량 상태를 확인하지 못하면 주행 중으로 간주해요" else null
     val paneWidth = PleosTheme.window.appLandscapeWidth * 0.4f
 
     if (!driving) s.wake.replaceConfirm?.let {
@@ -88,12 +86,11 @@ fun WakeMateApp(c: AppController) {
         title = "깨워드림",
         subtitle = (s.risk?.stage?.let { "졸음 ${it.label}" } ?: "준비 중") + " · " + (if (driving) "주행 중" else "정차 중"),
         toastState = toast,
-        actions = { if (s.sim.active) PleosStatusBadge("시연", PleosStatus.Autonomous, Modifier.testTag("sim_badge")) },
         supportingPane = if (driving || s.loading) null else { m -> Column(m.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(PleosSpacing.m)) { Summary(s) } },
         supportingPaneWidth = paneWidth,
     ) { mode ->
         when {
-            driving -> DrivingView(c, s, notice)
+            driving -> DrivingView(c, s)
             s.loading -> PleosPanel(Modifier.fillMaxWidth()) { Txt("불러오는 중…", secondary = true, modifier = Modifier.testTag("loading")) }
             else -> Parked(c, s, mode)
         }
@@ -102,24 +99,20 @@ fun WakeMateApp(c: AppController) {
 
 // ---------------- 주행 중: 읽기 전용 한 화면(조작 요소 없음) ----------------
 @Composable
-private fun DrivingView(c: AppController, s: UiState, notice: String?) {
+private fun DrivingView(c: AppController, s: UiState) {
     Column(Modifier.fillMaxSize().testTag("driving_view"), verticalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
         PleosPanel(Modifier.fillMaxWidth()) {
             val r = s.risk
-            Txt("졸음 위험지수", PleosTheme.typography.bodyMedium, secondary = true)
             Txt(r?.score?.toString() ?: "–", PleosTheme.typography.headlineLarge, modifier = Modifier.testTag("risk_score"))
             Txt(r?.stage?.label ?: "계산 중", PleosTheme.typography.titleMedium, modifier = Modifier.testTag("risk_stage"))
             val a = s.wake.alert
             if (a != null) {
-                Txt(a.line, PleosTheme.typography.bodyLarge, modifier = Modifier.testTag("banner_msg"))
                 a.shelterLine?.let { Txt(it, PleosTheme.typography.bodyMedium, modifier = Modifier.testTag("banner_shelter")) }
-                Txt(a.status, PleosTheme.typography.bodyMedium, modifier = Modifier.testTag("banner_status"))
+                if (!Status.isProgress(a.status)) Txt(a.status, PleosTheme.typography.bodyMedium, modifier = Modifier.testTag("banner_status"))
                 a.detail?.let { Txt(it, PleosTheme.typography.bodyMedium, secondary = true, modifier = Modifier.testTag("banner_detail")) }
             } else {
                 Txt("쉬지 않은 주행 ${s.drivingMin}분", PleosTheme.typography.bodyLarge, secondary = true, modifier = Modifier.testTag("driving_idle"))
-                notice?.let { Txt(it, PleosTheme.typography.bodyMedium, secondary = true, modifier = Modifier.testTag("driving_notice")) }
             }
-            if (s.sim.active) Txt("시연 신호가 섞여 있어요", PleosTheme.typography.labelMedium, secondary = true)
         }
     }
 }
@@ -130,8 +123,7 @@ private fun Summary(s: UiState) {
     PleosPanel(Modifier.fillMaxWidth(), title = "졸음 위험지수") {
         val r = s.risk
         Txt(r?.score?.toString() ?: "–", PleosTheme.typography.headlineMedium, modifier = Modifier.testTag("risk_score"))
-        if (r != null) PleosStatusBadge("${r.stage.label} (주의 ${r.thresholds.s1} · 경고 ${r.thresholds.s2} · 위험 ${r.thresholds.s3})", stageStatus(r.stage))
-        Txt("차량 신호 기반 추정이며 졸음을 직접 측정한 값이 아니에요", PleosTheme.typography.labelMedium, secondary = true)
+        if (r != null) PleosStatusBadge(r.stage.label, stageStatus(r.stage))
     }
 }
 
@@ -156,9 +148,8 @@ private fun Parked(c: AppController, s: UiState, mode: PleosWindowMode) {
 @Composable
 private fun AlertCard(c: AppController, a: Alert) {
     PleosPanel(Modifier.fillMaxWidth(), title = if (a.practice) "퀴즈 연습" else "깨우기 ${a.stage.n}단계") {
-        Txt(a.line, modifier = Modifier.testTag("banner_msg"))
         a.shelterLine?.let { Txt(it, modifier = Modifier.testTag("banner_shelter")) }
-        Txt(a.status, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_status"))
+        if (!Status.isProgress(a.status)) Txt(a.status, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_status"))
         a.detail?.let { Txt(it, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_detail")) }
         if (a.ventOffer && a.status == Status.LISTENING && !a.finished) Row(horizontalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
             PleosButton("외기로 바꾸기", onClick = { c.answerVent(true) }, modifier = Modifier.testTag("btn_vent_yes"))
@@ -179,11 +170,8 @@ private fun StatusPage(c: AppController, s: UiState) {
                 trailing = { Txt("${f.points} / ${f.max}", modifier = Modifier.testTag("factor_${f.key}")) },
             )
         }
-        Txt("개인 보정 +${s.p.calibration.offset} (졸리지 않다고 답한 횟수 ${s.p.calibration.feedbackCount}회)", PleosTheme.typography.labelMedium, secondary = true)
     }
-    PleosPanel(Modifier.fillMaxWidth(), title = "지금") {
-        Txt("쉬지 않은 주행 ${s.drivingMin}분 · 내기순환 ${s.recircMin?.let { "${it}분" } ?: "꺼짐/미확인"}", secondary = true)
-        Txt(if (s.steerReady) "조향 패턴 수집 중(정상)" else "조향 패턴은 40km/h 이상으로 30초 이상 달려야 판단해요", PleosTheme.typography.labelMedium, secondary = true)
+    PleosPanel(Modifier.fillMaxWidth()) {
         Row(horizontalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
             PleosButton("졸리지 않아요", onClick = { c.notSleepy() }, hierarchy = PleosButtonHierarchy.Secondary, modifier = Modifier.testTag("btn_not_sleepy"))
             PleosButton("퀴즈 연습", onClick = { c.startQuizPractice() }, hierarchy = PleosButtonHierarchy.Secondary, modifier = Modifier.testTag("btn_quiz"))
@@ -199,40 +187,15 @@ private fun NaviLine(c: AppController) {
         is NaviStatus.Pending -> PleosStatusBadge("${v.what}…", PleosStatus.Active)
         is NaviStatus.Success -> PleosStatusBadge(v.what, PleosStatus.Positive)
         is NaviStatus.Failed -> {
-            PleosStatusBadge(NaviText.shortWord(v) ?: "요청 실패", PleosStatus.Negative)
-            Txt(v.reason, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("navi_reason"))
+            PleosStatusBadge(NaviText.shortWord(v) ?: "요청 실패", if (v.reason.isBlank()) PleosStatus.Neutral else PleosStatus.Negative)
         }
     }
 }
 
-/** 쉼터 화면 안내 문장: 직선거리 안내는 항상, '가상 데이터' 문장은 샘플 데이터일 때만(배지와 같은 조건). */
-internal fun shelterNotice(sample: Boolean): String =
-    "직선거리 기준이며 실제 도로 거리는 반영하지 않아요. 주행 중 10km/h 이상이고 방위가 유효하면 진행 방향 앞쪽 시설 위주로, 아니면 방향은 반영하지 않아요." + if (sample) " 아래 항목은 형식 확인용 가상 데이터이며 실제 쉼터가 아니에요." else " 실시간 정보가 아니에요."
-
-/** 배지 문구(한 줄 배지라 짧게): 샘플이면 '시연용 가상 샘플 데이터', 실데이터면 실시간 아님(맨 앞)·데이터 기준일. 좁은 폭에서 말줄임되지 않게 출처·수집일은 [shelterSourceLine] 로 줄을 나눈다. */
-internal fun shelterBadge(sample: Boolean, asOf: String): String =
-    if (sample) "시연용 가상 샘플 데이터"
-    else "실시간 아님 · 기준일 ${asOf.ifEmpty { "미상" }}"
-
-/** 배지 아래 줄(줄바꿈 가능): 실데이터일 때 출처·수집일. 샘플이면 null. */
-internal fun shelterSourceLine(sample: Boolean, collectedAt: String): String? =
-    if (sample) null else "공공데이터 스냅샷 · 수집일 ${collectedAt.ifEmpty { "미상" }} · 한국도로공사"
-
 @Composable
 private fun ShelterPage(c: AppController, s: UiState) {
     PleosPanel(Modifier.fillMaxWidth(), title = "가까운 졸음쉼터") {
-        val ds = s.dataset
-        if (ds == null) Txt("쉼터 데이터를 불러오지 못했어요", secondary = true)
-        else {
-            PleosStatusBadge(shelterBadge(ds.sample, ds.asOf), PleosStatus.Autonomous)
-            shelterSourceLine(ds.sample, ds.collectedAt)?.let { Txt(it, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("shelter_source")) }
-            Txt(shelterNotice(ds.sample), PleosTheme.typography.labelMedium, secondary = true)
-        }
         NaviLine(c)
-        when {
-            s.origin == null -> Txt("현재 위치를 확인하지 못했어요", secondary = true, modifier = Modifier.testTag("no_location"))
-            s.nearby.isEmpty() && ds != null -> Txt("100km 안에 쉼터 데이터가 없어요", secondary = true, modifier = Modifier.testTag("no_shelter"))
-        }
         s.nearby.forEach { n ->
             PleosListItem(
                 title = n.shelter.name,
@@ -248,13 +211,11 @@ private fun ReportPage(c: AppController, s: UiState) {
     val fmt = remember { SimpleDateFormat("M/d HH:mm", Locale.KOREA) }
     PleosPanel(Modifier.fillMaxWidth(), title = "다음 휴식") {
         Txt(RestAdvice.next(s.drivingMin, s.risk?.stage ?: Stage.NONE), modifier = Modifier.testTag("rest_advice"))
-        Txt("권장 시간은 일반적인 기준이며 개인차가 있어요", PleosTheme.typography.labelMedium, secondary = true)
     }
     PleosPanel(Modifier.fillMaxWidth(), title = "휴식 기록") {
-        if (s.p.rests.isEmpty()) Txt("아직 기록이 없어요. 정차 15분 이상이면 휴식으로 기록해요", secondary = true, modifier = Modifier.testTag("no_rests"))
         s.p.rests.asReversed().take(5).forEach { r ->
             PleosListItem(
-                title = fmt.format(Date(r.atWallMs)) + if (r.sim) " [시연]" else "",
+                title = fmt.format(Date(r.atWallMs)),
                 description = "연속 ${r.drivingMin}분 주행 후 ${r.restMin}분 휴식",
             )
         }
@@ -262,7 +223,6 @@ private fun ReportPage(c: AppController, s: UiState) {
     PleosPanel(Modifier.fillMaxWidth(), title = "각성 퀴즈") {
         val q = s.p.quiz
         Txt("${q.total}회 중 ${q.passed}회 통과" + (q.lastResponseMs?.let { " · 마지막 응답 ${String.format(Locale.KOREA, "%.1f", it / 1000.0)}초" } ?: ""), secondary = true)
-        Txt("응답 시간은 질문이 끝난 뒤부터 인식 결과가 나올 때까지의 근사치예요", PleosTheme.typography.labelMedium, secondary = true)
     }
 }
 
@@ -271,11 +231,9 @@ private fun SettingsPage(c: AppController, s: UiState) {
     val st = s.p.settings
     PleosPanel(Modifier.fillMaxWidth(), title = "깨우기") {
         PleosSwitch(checked = st.voiceReply, onCheckedChange = { c.setVoiceReply(it) }, label = "음성 응답 사용", modifier = Modifier.testTag("set_voice_reply"))
-        Txt(if (st.voiceReply) "질문 뒤 최대 8초 마이크로 한 번 듣고 수락 표현이면 진행해요. 음성은 저장하지 않아요." else "안내만 하고 듣지 않아요.", PleosTheme.typography.labelMedium, secondary = true)
         PleosSwitch(checked = st.hvacControl, onCheckedChange = { c.setHvacControl(it) }, label = "공조 자동 조절(2단계)", modifier = Modifier.testTag("set_hvac"))
-        Txt("2단계에서 외기 순환·바람 세기·설정 온도를 바꿔요. 결과는 차량 응답을 받은 뒤에만 알려요.", PleosTheme.typography.labelMedium, secondary = true)
         PleosSwitch(checked = st.beep, onCheckedChange = { c.setBeep(it) }, label = "경고음", modifier = Modifier.testTag("set_beep"))
-        PleosButton("개인 보정 초기화", onClick = { c.resetCalibration() }, hierarchy = PleosButtonHierarchy.Secondary, enabled = s.p.calibration.offset > 0)
+        PleosButton("개인 보정 초기화", onClick = { c.resetCalibration() }, hierarchy = PleosButtonHierarchy.Secondary, enabled = s.p.calibration.offset > 0, modifier = Modifier.testTag("btn_reset_calibration"))
     }
     PleosPanel(Modifier.fillMaxWidth(), title = "백그라운드 감시") {
         var askBg by remember { mutableStateOf(false) }
@@ -293,49 +251,12 @@ private fun SettingsPage(c: AppController, s: UiState) {
             onCheckedChange = { on -> if (!on) { notifHint = false; c.disableBackgroundWatch() } else if (WakeRuntime.notificationsGranted(ctx)) { notifHint = false; askBg = true } else notifHint = true },
             label = BackgroundWatch.SWITCH_LABEL, modifier = Modifier.testTag("set_background_watch"),
         )
-        Txt(BackgroundWatch.SWITCH_HINT, PleosTheme.typography.labelMedium, secondary = true)
-        Txt(BackgroundWatch.NOTICE, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("background_notice"))
         if (notifHint) Txt(BackgroundWatch.NOTIF_DENIED_HINT, PleosTheme.typography.labelMedium, modifier = Modifier.testTag("background_notif_hint"))
         if (askBg) PleosPopup(
-            title = BackgroundWatch.POPUP_TITLE, description = BackgroundWatch.NOTICE_SUMMARY,
+            title = BackgroundWatch.POPUP_TITLE, description = BackgroundWatch.NOTICE,
             confirmLabel = BackgroundWatch.CONFIRM_LABEL, onConfirm = { askBg = false; c.enableBackgroundWatch() },
             onDismissRequest = { askBg = false }, cancelLabel = "취소",
-        ) {
-            Column(Modifier.heightIn(max = PleosTheme.dimensions.popupMaxHeight * 0.5f).verticalScroll(rememberScrollState()).testTag("background_notice_popup")) {
-                Txt(BackgroundWatch.NOTICE, PleosTheme.typography.labelMedium, secondary = true)
-            }
-        }
-    }
-    PleosPanel(Modifier.fillMaxWidth(), title = "공조 연결") {
-        val h = s.hvac
-        Txt(
-            when {
-                !h.capsKnown -> "확인 중"
-                !h.connected -> "연결 안 됨 또는 지원 항목 없음" + (h.error?.let { " ($it)" } ?: "")
-                else -> "연결됨 · 변경 가능: " + listOfNotNull("외기 순환".takeIf { h.caps.recirc }, "풍량".takeIf { h.caps.fan }, "온도".takeIf { h.caps.temp }).joinToString(", ").ifEmpty { "없음(읽기만)" }
-            },
-            modifier = Modifier.testTag("hvac_status"),
         )
-        Txt("공조 전원: " + (h.now.power?.let { if (it) "켜짐" else "꺼짐(풍량 변경이 거부될 수 있어요)" } ?: "알 수 없음"), PleosTheme.typography.labelMedium, secondary = true)
-    }
-    PleosPanel(Modifier.fillMaxWidth(), title = "저장된 기록과 개인정보") {
-        Txt("이 기기 안에만 저장해요: 개인 보정값, 휴식 시각·시간, 퀴즈 횟수, 설정(백그라운드 감시 동의 포함), 누적 주행 시간(평문). 위치·좌표·음성은 저장하지 않아요.", PleosTheme.typography.labelMedium, secondary = true)
-        if (s.corruptKept) Txt("저장 파일이 손상돼 처음 상태로 시작했어요. 아래 삭제로 지울 수 있어요.", PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("corrupt_kept"))
-        if (s.saveHeld) Txt("저장하지 못해 이번 실행에서는 저장하지 않아요. 앱을 다시 시작하거나 삭제하면 다시 저장해요.", PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("save_held"))
-        var ask by remember { mutableStateOf(false) }
-        PleosButton("저장된 기록 모두 삭제", onClick = { ask = true }, hierarchy = PleosButtonHierarchy.Secondary, modifier = Modifier.testTag("clear_all"))
-        if (ask) PleosPopup(
-            title = "저장된 기록을 모두 삭제할까요?",
-            description = "개인 보정값·휴식 기록·퀴즈 기록·누적 주행 시간이 삭제돼요(설정은 유지).\n되돌릴 수 없어요.",
-            confirmLabel = "삭제", onConfirm = { ask = false; c.clearAllData() },
-            onDismissRequest = { ask = false }, cancelLabel = "취소",
-        )
-    }
-    PleosPanel(Modifier.fillMaxWidth(), title = "데이터 출처") {
-        Txt("졸음쉼터·휴게소: 한국도로공사 공공데이터(공공데이터포털 15028203, 15025446; 이용허락범위 제한 없음)를 가공한 스냅샷이에요. 실시간 정보가 아니며 최신성·정확성은 보증하지 않아요.", PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("data_source"))
-    }
-    PleosPanel(Modifier.fillMaxWidth(), title = "알아두세요") {
-        Txt(BackgroundWatch.VOICE_LIMIT_NOTE + " 이 앱은 운전자 보조 도구이며 졸음 운전을 막을 수 없어요. 졸리면 즉시 안전한 곳에 정차해 쉬세요.", PleosTheme.typography.labelMedium, secondary = true)
     }
     if (c.debuggable) DebugPanel(s)
 }

@@ -19,10 +19,14 @@ object Status {
     const val NO_REPLY = "응답 없음"
     const val VOICE_ONLY = "안내만"
     const val FAILED = "실패"
+    const val UNCONFIRMED = "결과 미확인"
     const val NO_SHELTER = "쉼터 없음"
     const val PARTIAL = "일부 실패"
     const val NO_LOCATION = "위치 미확인"
     const val DONE = "완료"
+
+    /** 진행형(음성이 이미 말하는 중임을 재진술) 상태는 화면에 표시하지 않는다. */
+    fun isProgress(st: String) = st == PREPARING || st == SPEAKING || st == LISTENING || st == WORKING || st == NAVIGATING
 }
 
 /** 진행 중이거나 방금 끝난 깨우기 한 번. [finished] 면 결과 표시 중(자동 소거 대기). */
@@ -51,10 +55,10 @@ data class Alert(
     /** 1단계에서 '외기로 바꿔드릴까요?' 를 물었는지(듣는 중 '응' 은 퀴즈가 아니라 외기 전환). */
     val ventOffer: Boolean = false,
 ) {
-    /** 3단계 쉼터 한 줄(배너·주행 화면 공통). 가상 샘플이면 그 사실을 함께 적는다(실데이터는 이름만). */
-    val shelterLine: String? get() = shelter?.let { 
-        if (sampleData) it.shelter.name + " · 가상 샘플"
-        else listOf(it.shelter.kindLabel, it.shelter.name, it.shelter.directionLabel).filter { p -> p.isNotEmpty() }.joinToString(" ") + " · 스냅샷"
+    /** 3단계 쉼터 한 줄(배너·주행 화면 공통). 샘플 여부·출처 표기는 붙이지 않는다. */
+    val shelterLine: String? get() = shelter?.let {
+        if (sampleData) it.shelter.name
+        else listOf(it.shelter.kindLabel, it.shelter.name, it.shelter.directionLabel).filter { p -> p.isNotEmpty() }.joinToString(" ")
     }
 }
 
@@ -159,11 +163,11 @@ object WakeText {
         if (!locationKnown) return "졸음 위험지수 ${score}점으로 매우 높아요. 현재 위치를 확인하지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
         if (near == null) return "졸음 위험지수 ${score}점으로 매우 높아요. 근처 졸음쉼터 정보를 찾지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
         val dist = distanceSpeech(near.distanceKm)
-        val head = if (sample) "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 ${near.shelter.kindLabel}, ${near.shelter.name}, $dist. 시연용 샘플 데이터예요."
+        val head = if (sample) "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 ${near.shelter.kindLabel}, ${near.shelter.name}, $dist."
         else {
             val dir = near.shelter.directionLabel.let { if (it.isEmpty()) "" else ", $it" }
-            "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 ${near.shelter.kindLabel}, ${near.shelter.spokenName}$dir, $dist. " +
-                (if (headingApplied) "진행 방향 앞쪽 시설 기준이에요. 도로 방향은 직접 확인하세요." else "진행 방향은 반영하지 않으니 방향을 확인하세요.") + " 공공데이터 스냅샷이라 실시간 정보는 아니에요."
+            "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 ${near.shelter.kindLabel}, ${near.shelter.spokenName}$dir, $dist." +
+                (if (headingApplied) " 진행 방향 앞쪽 시설 기준이에요. 도로 방향은 직접 확인하세요." else "")
         }
         return head + if (voiceReply && plan != null) " ${plan.ask}" else " 안전한 곳에서 쉬어 가세요."
     }
@@ -221,8 +225,8 @@ object WakeFlow {
                 val a = s.alert
                 if (e.id != null && a != null && a.id == e.id && !a.finished) {
                     val text = NaviText.spoken(e.status)
-                    val st = if (e.status is NaviStatus.Success) Status.ACCEPTED else Status.FAILED
-                    s.copy(alert = a.copy(status = st, detail = text)) to listOf(WakeEffect.SpeakResult(e.id, text))
+                    val st = if (e.status is NaviStatus.Success) Status.ACCEPTED else if (NaviText.isNoResponse(e.status)) Status.UNCONFIRMED else Status.FAILED
+                    s.copy(alert = a.copy(status = st, detail = text.ifBlank { null })) to listOf(WakeEffect.SpeakResult(e.id, text))
                 } else s to NONE
             }
             is WakeEvent.ResultSpoken -> resultSpoken(s, e.id)

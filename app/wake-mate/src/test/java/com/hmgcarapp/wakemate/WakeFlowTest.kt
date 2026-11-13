@@ -8,6 +8,7 @@ import com.hmgcarapp.wakemate.domain.HvacTargets
 import com.hmgcarapp.wakemate.domain.ItemResult
 import com.hmgcarapp.wakemate.domain.LatLon
 import com.hmgcarapp.wakemate.domain.NaviAction
+import com.hmgcarapp.wakemate.domain.NaviReducer
 import com.hmgcarapp.wakemate.domain.NaviStatus
 import com.hmgcarapp.wakemate.domain.NaviText
 import com.hmgcarapp.wakemate.domain.NearShelter
@@ -378,7 +379,7 @@ class WakeFlowTest {
         assertEquals(commonFx + listOf(WakeEffect.Beep(1, Stage.S3), WakeEffect.PlanShelter(1)), fx0)
         val fx1 = h.send(WakeEvent.ShelterPlanned(1, near, RoutePlans.decide(RouteMode.NONE), true))
         assertEquals(
-            listOf(WakeEffect.Speak(1, "졸음 위험지수 85점으로 매우 높아요. 가까운 졸음쉼터, 가상 샘플 쉼터 1, 약 1.2킬로미터예요. 시연용 샘플 데이터예요. 안내를 시작할까요?")),
+            listOf(WakeEffect.Speak(1, "졸음 위험지수 85점으로 매우 높아요. 가까운 졸음쉼터, 가상 샘플 쉼터 1, 약 1.2킬로미터예요. 안내를 시작할까요?")),
             fx1,
         )
         assertEquals(listOf(WakeEffect.Listen(1, Purpose.CONFIRM)), h.send(WakeEvent.VoiceSpoken(1, true)))
@@ -436,12 +437,17 @@ class WakeFlowTest {
     }
 
     @Test fun naviNoResultText_isNeutral() {
-        assertEquals("내비에서 안내 시작을 확인하지 못했어요. 내비 화면에서 경로를 확인해 주세요.", NaviText.NO_RESPONSE)
+        assertEquals("", NaviText.NO_RESPONSE) // 무응답은 실패 문구 없음
+        assertEquals("", NaviText.spoken(NaviReducer.onTimeout(NaviStatus.Pending("x", 1), 1)))
+        assertTrue(NaviText.isNoResponse(null))
+        assertEquals("요청에 실패했어요", NaviText.spoken(NaviReducer.onError(NaviStatus.Pending("x", 1), "CAUSE_SEARCH_ROUTE")))
+        assertEquals(NaviText.REQUEST_FAILED, NaviText.errorMessage("CAUSE_SEARCH_ROUTE"))
     }
 
     @Test fun naviNoResult_saysNoResponse() {
         val h = H().toS3Listening(); h.send(WakeEvent.VoiceHeard(1, Purpose.CONFIRM, Heard.Text("응"), 1))
-        assertEquals(listOf(WakeEffect.SpeakResult(1, NaviText.NO_RESPONSE)), h.send(WakeEvent.NaviResult(1, null)))
+        assertEquals(listOf(WakeEffect.SpeakResult(1, "")), h.send(WakeEvent.NaviResult(1, null)))
+        assertEquals(Status.UNCONFIRMED, h.alert!!.status); assertNull(h.alert!!.detail)
     }
 
     // ---------------- 시연 주입 / 기타 ----------------
@@ -590,10 +596,10 @@ class WakeFlowTest {
         assertTrue(h.send(WakeEvent.ResultSpoken(1)).any { it is WakeEffect.ApplyHvac })
     }
 
-    @Test fun shelterLine_showsNameAndSampleNotice() {
+    @Test fun shelterLine_showsNameOnlyWithoutSampleOrSourceSuffix() {
         val h = H().toS3Listening()
-        assertEquals("가상 샘플 쉼터 1 · 가상 샘플", h.alert!!.shelterLine)
-        assertEquals("졸음쉼터 가상 샘플 쉼터 1 상행 · 스냅샷", h.alert!!.copy(sampleData = false).shelterLine)
+        assertEquals("가상 샘플 쉼터 1", h.alert!!.shelterLine)
+        assertEquals("졸음쉼터 가상 샘플 쉼터 1 상행", h.alert!!.copy(sampleData = false).shelterLine)
         assertNull(h.alert!!.copy(shelter = null).shelterLine)
     }
 

@@ -83,8 +83,9 @@ object NaviReducer {
 }
 
 object NaviText {
-    const val NOT_CONNECTED = "내비 서비스에 연결되지 않았어요"
-    const val NO_RESPONSE = "내비에서 안내 시작을 확인하지 못했어요. 내비 화면에서 경로를 확인해 주세요."
+    const val NOT_CONNECTED = "요청에 실패했어요"
+    /** 무응답은 사용자 문구가 없다(빈 문자열 = 표시·발화 안 함). 확정 실패만 [REQUEST_FAILED]/[NOT_CONNECTED]. */
+    const val NO_RESPONSE = ""
     const val REQUEST_FAILED = "요청에 실패했어요"
     const val ROUTE_STARTED = "쉼터 안내를 시작했어요"
     const val WAYPOINT_ADDED = "쉼터를 경유지로 추가했어요"
@@ -92,26 +93,24 @@ object NaviText {
     const val PENDING_WAYPOINT = "경유지 추가 요청 중"
     const val BUSY = "이전 요청을 처리 중이에요"
 
+    /** 결과를 받지 못한 무응답(시간 초과·결과 없음)인지. 내비가 실제로 안내를 시작했을 수 있어 실패로 표시하지 않는다. */
+    fun isNoResponse(result: NaviStatus?): Boolean = result == null || (result is NaviStatus.Failed && result.reason.isBlank())
+
     fun spoken(result: NaviStatus?): String = when (result) {
         is NaviStatus.Success -> result.what
         is NaviStatus.Failed -> result.reason
         else -> NO_RESPONSE
     }
 
-    fun errorMessage(codeName: String): String = when (codeName) {
-        "CAUSE_SEARCH_ROUTE" -> "경로를 찾지 못했어요"
-        "CAUSE_SEARCH_ROUTE_OVER_DISTANCE" -> "경로가 너무 멀어요"
-        "CAUSE_SEARCH_ROUTE_TOO_SHORT_DISTANCE" -> "목적지가 너무 가까워요"
-        "CAUSE_LOW_BATTERY" -> "배터리가 부족해 경로를 만들 수 없어요"
-        "CAUSE_SEARCH_TRIP" -> "여정을 찾지 못했어요"
-        else -> "경로 요청에 실패했어요"
-    }
+    /** 원인 코드와 무관하게 한 문구로 통일(원인은 로그에만 남는다). */
+    @Suppress("UNUSED_PARAMETER")
+    fun errorMessage(codeName: String): String = REQUEST_FAILED
 
     fun shortWord(st: NaviStatus): String? = when (st) {
         NaviStatus.Idle -> null
         is NaviStatus.Pending -> "요청 중"
         is NaviStatus.Success -> "요청 완료"
-        is NaviStatus.Failed -> "요청 실패"
+        is NaviStatus.Failed -> if (st.reason.isBlank()) "결과 미확인" else "요청 실패"
     }
 }
 

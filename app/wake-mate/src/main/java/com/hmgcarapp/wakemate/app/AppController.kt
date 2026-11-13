@@ -278,7 +278,9 @@ class AppController(
         if (!byVoice) dispatch(WakeEvent.Notify("기준을 조금 높였어요(개인 보정 ${_state.value.p.calibration.offset})"))
     }
 
+    /** 개인 보정(졸리지 않아요 누적)을 처음 값으로 되돌린다. */
     fun resetCalibration() = parkedOnly { updateP { it.copy(calibration = Calibration()) } }
+
     fun answerVent(accept: Boolean) = parkedOnly { dispatch(if (accept) WakeEvent.VentAccept else WakeEvent.VentDecline) }
     fun startQuizPractice() = parkedOnly { dispatch(WakeEvent.StartQuizPractice) }
     fun guide(shelterId: String) = parkedOnly { runner.guide(shelterId) }
@@ -289,19 +291,6 @@ class AppController(
 
     private fun recordQuiz(o: Quiz.Outcome, ms: Long) {
         updateP { it.copy(quiz = it.quiz.copy(total = it.quiz.total + 1, passed = it.quiz.passed + if (Quiz.alert(o)) 1 else 0, lastResponseMs = if (o == Quiz.Outcome.NO_ANSWER || o == Quiz.Outcome.WRONG) it.quiz.lastResponseMs else ms)) }
-    }
-
-    /** 저장된 모든 기록(설정 제외 아님: 보정·휴식·퀴즈·누적 주행)을 지우고 설정만 기본값으로 다시 기록한다. */
-    fun clearAllData() = parkedOnly {
-        if (!restored) return@parkedOnly
-        saveJob?.cancel()
-        driveClock.reset()
-        _state.update { it.copy(p = Persisted(settings = it.p.settings)) }
-        scope.launch {
-            val ok = withContext(Dispatchers.IO) { stateStore.clearAll { persistedCopy() } }
-            _state.update { it.copy(saveHeld = !stateStore.writable, corruptKept = false) }
-            dispatch(WakeEvent.Notify(if (ok) "저장된 기록을 모두 지웠어요" else "삭제하지 못했어요. 잠시 후 다시 시도해 주세요"))
-        }
     }
 
     // ---------- 시연(SimReceiver 용: 시스템 주도, 주행 가드 없음, debuggable 전용) ----------
@@ -391,7 +380,7 @@ class AppController(
     private fun onWriteResult(r: WriteResult) {
         when (r) {
             WriteResult.WROTE -> _state.update { if (it.corruptKept) it.copy(corruptKept = false) else it }
-            WriteResult.FAILED -> { _state.update { it.copy(saveHeld = true) }; dispatch(WakeEvent.Notify("저장하지 못해 이번에는 저장하지 않아요")) }
+            WriteResult.FAILED -> { _state.update { it.copy(saveHeld = true) }; dispatch(WakeEvent.Notify("저장하지 못했어요")) }
             WriteResult.UNCHANGED, WriteResult.HELD -> Unit
         }
     }

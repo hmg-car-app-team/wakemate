@@ -286,13 +286,13 @@ class RealShelterDataTest {
     @Test fun voice_realData_saysSnapshotNotRealtime_andKind() {
         val n = com.hmgcarapp.wakemate.domain.NearShelter(rests.shelters[0], 2.0)
         val t = com.hmgcarapp.wakemate.domain.WakeText.s3(85, n, false, null, false)
-        assertTrue(t, t.contains("가까운 휴게소, 강릉 강릉 방면, 하행, 약 2.0킬로미터예요.") && t.contains("진행 방향은 반영하지 않으니 방향을 확인하세요") && t.contains("공공데이터 스냅샷") && t.contains("실시간 정보는 아니에요") && !t.contains("시연용"))
+        assertTrue(t, t.contains("가까운 휴게소, 강릉 강릉 방면, 하행, 약 2.0킬로미터예요.") && !t.contains("반영하지 않으니") && !t.contains("공공데이터 스냅샷") && !t.contains("실시간 정보") && !t.contains("시연용") && !t.contains("샘플"))
     }
 
     @Test fun voice_headingApplied_saysAheadBasis_notIgnored() {
         val n = com.hmgcarapp.wakemate.domain.NearShelter(rests.shelters[0], 2.0)
         val t = com.hmgcarapp.wakemate.domain.WakeText.s3(85, n, false, null, false, headingApplied = true)
-        assertTrue(t, t.contains("진행 방향 앞쪽 시설 기준이에요. 도로 방향은 직접 확인하세요.") && !t.contains("반영하지 않으니") && t.contains("공공데이터 스냅샷"))
+        assertTrue(t, t.contains("진행 방향 앞쪽 시설 기준이에요. 도로 방향은 직접 확인하세요.") && !t.contains("반영하지 않으니") && !t.contains("공공데이터 스냅샷"))
     }
 
     @Test fun usableHeading_onlyWhenDrivingFiniteNonZero() {

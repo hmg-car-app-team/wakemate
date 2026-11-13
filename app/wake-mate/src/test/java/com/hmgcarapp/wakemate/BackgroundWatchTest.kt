@@ -98,8 +98,9 @@ class BackgroundWatchTest {
 
     @Test fun noticeMatchesCode_noLocationCollectionStatement() {
         val n = BackgroundWatch.NOTICE
-        assertTrue(n.contains("위치는 수집하지 않아요") && n.contains("저장하지 않아요") && n.contains("알림") && n.contains("끄기") && n.contains("시동 신호는 아니고"))
-        assertTrue(BackgroundWatch.SWITCH_HINT.contains("기본값은 꺼짐"))
+        assertTrue(n.contains("위치는 수집하지 않고") && n.contains("알림") && n.contains("끄기"))
+        assertTrue("팝업 본문은 1~2문장", n.length < 100)
+        assertTrue("스위치 부연 설명 문구는 없다", BackgroundWatch::class.java.declaredFields.none { it.name == "SWITCH_HINT" })
     }
 
     @Test fun noNotificationPermission_doesNotStart() {
@@ -116,16 +117,8 @@ class BackgroundWatchTest {
         assertTrue(BackgroundWatch.HINT_RECHECK_MS in 200L..5_000L)
     }
 
-    @Test fun voiceLimitWording_isHedgedAndMentionsBoot() {
-        val t = BackgroundWatch.VOICE_LIMIT_NOTE
-        assertTrue(t.contains("확인했지만") && t.contains("멈출 수 있어요") && t.contains("부팅 직후") && t.contains("마이크"))
-        assertFalse(t.contains("멈춰요"))
-        assertTrue(BackgroundWatch.NOTICE.contains("멈출 수 있어요") && BackgroundWatch.NOTICE.contains("부팅 직후"))
-    }
-
-    @Test fun consentPopup_hasSummaryAndFullNotice() {
-        assertTrue(BackgroundWatch.NOTICE_SUMMARY.length < BackgroundWatch.NOTICE.length)
-        assertTrue(BackgroundWatch.NOTICE_SUMMARY.contains("위치는 수집하지 않아요"))
-        assertTrue(BackgroundWatch.NOTICE_VERSION >= 2) // 고지문 변경으로 이전 동의 무효
+    @Test fun consentPopup_isShortAndVersionBumped() {
+        assertTrue(BackgroundWatch.NOTICE.length < 100)
+        assertTrue(BackgroundWatch.NOTICE_VERSION >= 3) // 고지문 변경으로 이전 동의 무효
     }
 }
