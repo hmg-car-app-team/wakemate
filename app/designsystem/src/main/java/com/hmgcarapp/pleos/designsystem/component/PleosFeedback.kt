@@ -45,11 +45,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.hmgcarapp.pleos.designsystem.theme.PleosColors
@@ -179,22 +181,27 @@ private fun StageGauge(fraction: Float, diameter: Dp, stroke: Dp, sc: PleosStage
     }
 }
 
+/** 히어로 크기: 정차 화면 보조 패널(Compact), 일반(Regular), 주행 화면 전체(Driving). */
+enum class PleosHeroSize { Compact, Regular, Driving }
+
 /**
  * 위험 단계에 맞춰 배경 전체 색이 바뀌는 히어로 배너(아크 게이지 + 점수 + 단계 + 상세).
  * 색은 [pleosStageColors]. 단계가 바뀔 때 한 번만 부드럽게 전환하고 깜빡이지 않는다(주행 중 주의분산 최소화).
+ * [scoreContent]·[stageContent] 는 배경에 맞는 글자색과 크기별 글꼴을 받는다. 높이를 주면 내용은 세로 가운데에 놓인다.
  */
 @Composable
 fun PleosStageHeroBanner(
     score: Int?,
     stageLevel: Int,
     modifier: Modifier = Modifier,
-    compact: Boolean = false,
+    size: PleosHeroSize = PleosHeroSize.Regular,
     chipLabel: String? = null,
-    scoreContent: @Composable (Color) -> Unit,
-    stageContent: @Composable (Color) -> Unit,
+    scoreContent: @Composable (Color, TextStyle) -> Unit,
+    stageContent: @Composable (Color, TextStyle) -> Unit,
     detailContent: @Composable ColumnScope.(Color, Color) -> Unit = { _, _ -> },
 ) {
     val colors = PleosTheme.colors
+    val type = PleosTheme.typography
     val d = PleosTheme.dimensions
     val sc = pleosStageColors(colors, stageLevel)
     val bg by animateColorAsState(sc.background, tween(PleosMotion.DurationMedium1), label = "hero-bg")
@@ -204,14 +211,24 @@ fun PleosStageHeroBanner(
         label = "hero-arc",
     )
     val outline = if (colors.isDark) colors.basicAlphaDark100 else colors.basicAlphaDark50
+    val gauge = when (size) { PleosHeroSize.Compact -> 148.dp; PleosHeroSize.Regular -> 240.dp; PleosHeroSize.Driving -> 400.dp }
+    val stroke = when (size) { PleosHeroSize.Compact -> 14.dp; PleosHeroSize.Regular -> 22.dp; PleosHeroSize.Driving -> 32.dp }
+    val gap = when (size) { PleosHeroSize.Compact -> 24.dp; PleosHeroSize.Regular -> 40.dp; PleosHeroSize.Driving -> 72.dp }
+    val padH = when (size) { PleosHeroSize.Compact -> 24.dp; PleosHeroSize.Regular -> 40.dp; PleosHeroSize.Driving -> 64.dp }
+    val scoreStyle = when (size) {
+        PleosHeroSize.Compact -> type.headlineMedium
+        PleosHeroSize.Regular -> type.headlineLarge
+        PleosHeroSize.Driving -> type.headlineLarge.copy(fontSize = 128.sp, lineHeight = 136.sp)
+    }
+    val stageStyle = when (size) { PleosHeroSize.Compact -> type.titleSmall; PleosHeroSize.Regular -> type.titleMedium; PleosHeroSize.Driving -> type.headlineMedium }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(d.listRadius))
             .background(bg)
             .border(1.dp, if (stageLevel >= 1) sc.content.copy(alpha = 0.2f) else outline, RoundedCornerShape(d.listRadius))
-            .padding(horizontal = if (compact) 24.dp else 40.dp, vertical = if (compact) 24.dp else 36.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+            .padding(horizontal = padH, vertical = if (size == PleosHeroSize.Compact) 24.dp else 36.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
     ) {
         chipLabel?.let {
             Row(
@@ -220,20 +237,20 @@ fun PleosStageHeroBanner(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(10.dp).clip(CircleShape).background(sc.accent))
-                Text(it, style = PleosTheme.typography.labelMedium.strong(), color = sc.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(it, style = type.labelMedium.strong(), color = sc.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(if (compact) 24.dp else 40.dp),
+            horizontalArrangement = Arrangement.spacedBy(gap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            StageGauge(fraction, if (compact) 148.dp else 240.dp, if (compact) 14.dp else 22.dp, sc) {
-                scoreContent(sc.content)
-                if (!compact) Text("/ 100", style = PleosTheme.typography.labelMedium, color = sc.contentSecondary)
+            StageGauge(fraction, gauge, stroke, sc) {
+                scoreContent(sc.content, scoreStyle)
+                if (size != PleosHeroSize.Compact) Text("/ 100", style = type.labelMedium, color = sc.contentSecondary)
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp)) {
-                stageContent(sc.content)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (size == PleosHeroSize.Compact) 10.dp else 16.dp)) {
+                stageContent(sc.content, stageStyle)
                 detailContent(sc.content, sc.contentSecondary)
             }
         }
