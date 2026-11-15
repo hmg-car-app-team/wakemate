@@ -54,6 +54,32 @@ class HvacShelterTest {
         assertEquals(HvacTargets(false, null, null), HvacPlan.plan(HvacNow(recirc = true, fan = 1, tempC = 25f), HvacCaps(recirc = true)))
     }
 
+    // ---- 물리 자극: 시트 통풍·앰비언트 조명 ----
+    private val allCaps = caps.copy(seatVent = true, seatVentMax = 3, ambientColor = true)
+
+    @Test fun plan_addsSeatVentAndAmbientAlert_onlyWhenSupportedAndNotAlreadySet() {
+        val t = HvacPlan.plan(HvacNow(true, true, 2, 24f, seatVent = 0, ambientColor = 0), allCaps)
+        assertEquals(HvacTargets(false, 4, 22.0f, 3, HvacPlan.ALERT_AMBIENT_ARGB), t)
+        assertEquals(listOf("recirc", "fan", "temp", "seat", "ambient"), t.kinds)
+        val done = HvacPlan.plan(HvacNow(false, false, 5, 16f, seatVent = 3, ambientColor = HvacPlan.ALERT_AMBIENT_ARGB), allCaps)
+        assertTrue("이미 최대 통풍·경고색이면 쓰지 않는다", done.isEmpty)
+        assertEquals(1, HvacPlan.plan(HvacNow(), HvacCaps(seatVent = true, seatVentMax = 0)).seatVent) // 범위가 0이어도 최소 1단
+    }
+
+    @Test fun planVent_neverTouchesSeatOrAmbient() {
+        assertEquals(HvacTargets(recirc = false), HvacPlan.planVent(HvacNow(recirc = true), allCaps))
+        assertTrue(HvacPlan.usable(true, HvacCaps(seatVent = true), ventOnly = false))
+        assertFalse(HvacPlan.usable(true, HvacCaps(seatVent = true, ambientColor = true), ventOnly = true))
+    }
+
+    @Test fun report_namesSeatAndAmbientResultsHonestly() {
+        val planned = HvacTargets(seatVent = 3, ambientColor = HvacPlan.ALERT_AMBIENT_ARGB)
+        assertEquals("시트 통풍을 켰어요, 실내 조명을 경고색으로 바꿨어요",
+            HvacReport.summary(listOf(ItemResult("seat", true, null), ItemResult("ambient", true, null)), planned, true))
+        val partial = HvacReport.summary(listOf(ItemResult("seat", true, null), ItemResult("ambient", false, HvacErrors.DRIVING_RESTRICTED)), planned, true)
+        assertTrue(partial, partial.startsWith("시트 통풍을 켰어요. 실내 조명은") && partial.contains("주행 중"))
+    }
+
     @Test fun plan_fanTargetWithinCapabilityBounds() {
         assertEquals(1, HvacPlan.plan(HvacNow(fan = null), HvacCaps(fan = true, fanMin = 1, fanMax = 1)).fan)
         assertNull(HvacPlan.plan(HvacNow(fan = 1), HvacCaps(fan = true, fanMin = 1, fanMax = 1)).fan)

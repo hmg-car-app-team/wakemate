@@ -8,24 +8,40 @@ import kotlin.math.roundToInt
 data class HvacCaps(
     val recirc: Boolean = false, val fan: Boolean = false, val temp: Boolean = false,
     val fanMin: Int = 1, val fanMax: Int = 1, val tempMin: Float = 16f, val tempMax: Float = 32f,
-) { val anyWritable: Boolean get() = recirc || fan || temp }
+    val seatVent: Boolean = false, val seatVentMax: Int = 3,
+    val ambientColor: Boolean = false,
+) { val anyWritable: Boolean get() = recirc || fan || temp || seatVent || ambientColor }
 
 /** 현재 공조 값(읽기 결과). null = 모름. */
-data class HvacNow(val power: Boolean? = null, val recirc: Boolean? = null, val fan: Int? = null, val tempC: Float? = null)
+data class HvacNow(
+    val power: Boolean? = null, val recirc: Boolean? = null, val fan: Int? = null, val tempC: Float? = null,
+    val seatVent: Int? = null, val ambientColor: Int? = null,
+)
 
 /** 쓸 값. null 인 항목은 쓰지 않는다. */
-data class HvacTargets(val recirc: Boolean? = null, val fan: Int? = null, val tempC: Float? = null) {
-    val kinds: List<String> get() = buildList { if (recirc != null) add("recirc"); if (fan != null) add("fan"); if (tempC != null) add("temp") }
+data class HvacTargets(
+    val recirc: Boolean? = null, val fan: Int? = null, val tempC: Float? = null,
+    val seatVent: Int? = null, val ambientColor: Int? = null,
+) {
+    val kinds: List<String> get() = buildList {
+        if (recirc != null) add("recirc")
+        if (fan != null) add("fan")
+        if (tempC != null) add("temp")
+        if (seatVent != null) add("seat")
+        if (ambientColor != null) add("ambient")
+    }
     val isEmpty: Boolean get() = kinds.isEmpty()
 }
 
 /** 한 항목의 쓰기 결과. [code] 는 실패 시 오류 코드(없으면 null). */
 data class ItemResult(val kind: String, val ok: Boolean, val code: Int?)
 
-/** 2단계 공조 계획(순수): 외기 순환으로, 풍량은 최대의 약 80%까지, 설정 온도는 현재보다 2℃ 낮게. 이미 충분하면 쓰지 않는다. */
+/** 2단계 물리 각성 계획(순수): 외기 순환, 풍량 80%, 설정 온도 -2℃, 운전석 시트 통풍 최대, 실내 앰비언트 경고색. 이미 충분하면 쓰지 않는다. */
 object HvacPlan {
     const val TEMP_DROP_C = 2f
     const val FAN_FRACTION = 0.8
+    /** 경고·위험 단계 실내 앰비언트 라이트 색상(불투명 레드-오렌지 ARGB). */
+    const val ALERT_AMBIENT_ARGB = -50401
 
     /** 1단계 제안 수락: 외기 순환만 바꾼다(풍량·온도는 2단계에서). */
     fun planVent(now: HvacNow, caps: HvacCaps): HvacTargets =
@@ -45,7 +61,10 @@ object HvacPlan {
             val t = (floor((base - TEMP_DROP_C) * 2) / 2f).coerceIn(caps.tempMin, caps.tempMax)
             if (now.tempC == null || t < now.tempC - 0.01f) t else null
         } else null
-        return HvacTargets(recirc, fan, temp)
+        val seatTarget = caps.seatVentMax.coerceAtLeast(1)
+        val seatVent = if (caps.seatVent && (now.seatVent == null || now.seatVent < seatTarget)) seatTarget else null
+        val ambient = if (caps.ambientColor && now.ambientColor != ALERT_AMBIENT_ARGB) ALERT_AMBIENT_ARGB else null
+        return HvacTargets(recirc, fan, temp, seatVent, ambient)
     }
 }
 
@@ -79,9 +98,23 @@ object HvacErrors {
 
 /** 쓰기 결과를 사용자에게 정직하게 알리는 문구(결과를 받은 뒤에만 사용). */
 object HvacReport {
-    private fun okPhrase(k: String) = when (k) { "recirc" -> "외기 순환으로 바꿨어요"; "fan" -> "바람 세기를 올렸어요"; "temp" -> "설정 온도를 낮췄어요"; else -> "변경했어요" }
+    private fun okPhrase(k: String) = when (k) {
+        "recirc" -> "외기 순환으로 바꿨어요"
+        "fan" -> "바람 세기를 올렸어요"
+        "temp" -> "설정 온도를 낮췄어요"
+        "seat" -> "시트 통풍을 켰어요"
+        "ambient" -> "실내 조명을 경고색으로 바꿨어요"
+        else -> "변경했어요"
+    }
     /** 주제 조사(은/는)까지 포함한 항목 이름(받침에 맞춰 고정). */
-    private fun topic(k: String) = when (k) { "recirc" -> "외기 순환은"; "fan" -> "바람 세기는"; "temp" -> "설정 온도는"; else -> "${k}은(는)" }
+    private fun topic(k: String) = when (k) {
+        "recirc" -> "외기 순환은"
+        "fan" -> "바람 세기는"
+        "temp" -> "설정 온도는"
+        "seat" -> "시트 통풍은"
+        "ambient" -> "실내 조명은"
+        else -> "${k}은(는)"
+    }
 
     /** 음성·배너용 한 문단. */
     fun summary(results: List<ItemResult>, planned: HvacTargets, connected: Boolean, ventOnly: Boolean = false): String {

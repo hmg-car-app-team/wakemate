@@ -117,7 +117,7 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
     private fun requestCaps(c: Conn<Session>) {
         val v = c.value.vehicle; val gen = c.gen
         val h = v.getHVAC()
-        synchronized(lock) { pendingCaps = 4; capsAt = clock(); caps = HvacCaps(); now = HvacNow(); err = null; areas.clear(); readable.clear(); capsKnown = false }
+        synchronized(lock) { pendingCaps = 6; capsAt = clock(); caps = HvacCaps(); now = HvacNow(); err = null; areas.clear(); readable.clear(); capsKnown = false }
         val fail: (String) -> (Exception) -> Unit = { name -> { e -> conn.ifCurrent(gen) { conn.onFailure(gen, e); HmgLog.w("WakeHvac", "capability $name 실패: ${e.javaClass.simpleName}"); capDone(gen, name, null, null) { cp, _ -> cp } } } }
         h.checkHvacRecirculationCapabilities({ cfg: CapabilityConfig, l: List<SeatArea> -> capDone(gen, "recirc", cfg, pick("recirc", l)) { cp, ok -> cp.copy(recirc = ok) } }, fail("recirc"))
         h.checkHvacFanSpeedCapabilities({ cfg: CapabilityConfig, m: Map<SeatArea, AreaBounds<Int>> ->
@@ -127,6 +127,19 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
             val a = pick("temp", m.keys); val b = a?.let { m[it] }
             capDone(gen, "temp", cfg, a) { cp, ok -> cp.copy(temp = ok, tempMin = if (b != null && b.minValue < b.maxValue) b.minValue else cp.tempMin, tempMax = if (b != null && b.minValue < b.maxValue) b.maxValue else cp.tempMax) } }, fail("temp"))
         h.checkHvacPowerCapabilities({ cfg: CapabilityConfig, l: List<SeatArea> -> capDone(gen, "power", cfg, pick("power", l)) { cp, _ -> cp } }, fail("power"))
+        // 시트·조명은 차종마다 없을 수 있다: 동기 예외가 공조 항목을 막지 않도록 따로 감싸고, 실패는 '미지원'으로 기록한다
+        optionalCap("seat", fail) {
+            v.getSeat().checkSeatVentilationCapabilities({ cfg: CapabilityConfig, m: Map<SeatArea, AreaBounds<Int>> ->
+                val a = pick("seat", m.keys); val b = a?.let { m[it] }
+                capDone(gen, "seat", cfg, a) { cp, ok -> cp.copy(seatVent = ok, seatVentMax = b?.maxValue?.coerceAtLeast(1) ?: cp.seatVentMax) } }, fail("seat"))
+        }
+        optionalCap("ambient", fail) {
+            v.getLight().checkAmbientLightBrightnessColorCapabilities({ cfg: CapabilityConfig, l: List<SeatArea> -> capDone(gen, "ambient", cfg, pick("ambient", l)) { cp, ok -> cp.copy(ambientColor = ok) } }, fail("ambient"))
+        }
+    }
+
+    private inline fun optionalCap(name: String, fail: (String) -> (Exception) -> Unit, block: () -> Unit) {
+        try { block() } catch (e: Exception) { if (e is CancellationException) throw e; fail(name)(e) }
     }
 
     private fun observe(kind: String, f: (HvacNow) -> HvacNow) {
@@ -135,13 +148,15 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
     }
 
     private fun readAll(c: Conn<Session>) {
-        val h = c.value.vehicle.getHVAC(); val gen = c.gen
+        val v = c.value.vehicle; val h = v.getHVAC(); val gen = c.gen
         val bad: (Exception) -> Unit = { e -> conn.ifCurrent(gen) { conn.onAlive(gen); conn.onFailure(gen, e) } }
         val rd = synchronized(lock) { readable.toSet() }
         if ("recirc" in rd) h.getHvacRecirculationState(areaOf("recirc"), { b: Boolean? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("recirc") { it.copy(recirc = b) } } }, bad)
         if ("fan" in rd) h.getHvacFanSpeed(areaOf("fan"), { x: Int? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("fan") { it.copy(fan = x) } } }, bad)
         if ("temp" in rd) h.getHvacTemperature(areaOf("temp"), TemperatureUnit.CELSIUS, { x: Float? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("temp") { it.copy(tempC = x) } } }, bad)
         if ("power" in rd) h.getHvacPowerState(areaOf("power"), { b: Boolean? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("power") { it.copy(power = b) } } }, bad)
+        if ("seat" in rd) v.getSeat().getHvacSeatVentilationState(areaOf("seat"), { x: Int? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("seat") { it.copy(seatVent = x) } } }, bad)
+        if ("ambient" in rd) v.getLight().getAmbientLightBrightnessColor(areaOf("ambient"), { x: Int? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("ambient") { it.copy(ambientColor = x) } } }, bad)
     }
 
     private class Batch(val kinds: List<String>, val at: Long, val cb: (List<ItemResult>) -> Unit) { val results = ArrayList<ItemResult>() }
@@ -171,9 +186,11 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
             if (t.recirc != null && cp.recirc) add("recirc")
             if (t.fan != null && cp.fan) add("fan")
             if (t.tempC != null && cp.temp) add("temp")
+            if (t.seatVent != null && cp.seatVent) add("seat")
+            if (t.ambientColor != null && cp.ambientColor) add("ambient")
         }
         if (c == null || kinds.isEmpty()) { onDone(emptyList()); return 0 }
-        val gen = c.gen; val h = c.value.vehicle.getHVAC()
+        val gen = c.gen; val v = c.value.vehicle; val h = v.getHVAC()
         val b = Batch(kinds, clock(), onDone)
         synchronized(lock) { batch = b }
         fun ok(k: String): (Any?, Any?) -> Unit = { _, _ -> conn.ifCurrent(gen) { conn.onResponse(gen); record(b, k, true, null) } }
@@ -183,6 +200,8 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
         if ("recirc" in kinds) guard("recirc") { h.setHvacRecirculation(areaOf("recirc"), t.recirc!!, { a, r -> ok("recirc")(a, r) }, fail("recirc")) }
         if ("fan" in kinds) guard("fan") { h.setHvacFanSpeed(areaOf("fan"), t.fan!!, { a, r -> ok("fan")(a, r) }, fail("fan")) }
         if ("temp" in kinds) guard("temp") { h.setHvacTemperature(areaOf("temp"), t.tempC!!, TemperatureUnit.CELSIUS, { a, r -> ok("temp")(a, r) }, fail("temp")) }
+        if ("seat" in kinds) guard("seat") { v.getSeat().setHvacSeatVentilation(areaOf("seat"), t.seatVent!!, { a, r -> ok("seat")(a, r) }, fail("seat")) }
+        if ("ambient" in kinds) guard("ambient") { v.getLight().setAmbientLightBrightnessColor(areaOf("ambient"), t.ambientColor!!, { a, r -> ok("ambient")(a, r) }, fail("ambient")) }
         HmgLog.i("WakeHvac", "공조 명령 ${n}건 전송(${kinds.joinToString(",")})")
         return n
     }
