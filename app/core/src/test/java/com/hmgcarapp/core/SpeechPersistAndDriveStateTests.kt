@@ -44,7 +44,7 @@ private class FakeTts(var accept: Boolean = true) : TtsPort {
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class FixCTests {
+class SpeechPersistAndDriveStateTests {
     @get:Rule val tmp = TemporaryFolder()
 
     // ---------- K4 Voice ----------

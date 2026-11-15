@@ -19,9 +19,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Fix-F P6: 기어/위치 백오프(안정 연결 후에만 리셋), 권한 대기, 포트 재생성. */
+/** 기어/위치 백오프(안정 연결 후에만 리셋), 권한 대기, 포트 재생성. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class FixFTests {
+class ConnectionBackoffTests {
     private class GV(val failAfterMs: Long?, val errs: MutableList<((Throwable) -> Unit)>) : GearVehicle {
         override fun initialize() = Unit
         override fun queryCurrent(onGear: (Gear) -> Unit, onError: (Throwable) -> Unit) { errs += onError }

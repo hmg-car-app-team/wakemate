@@ -24,9 +24,9 @@ import java.lang.reflect.InvocationTargetException
 class DeadObjectException : Exception("dead")
 class RemoteException : Exception("remote")
 
-/** Fix-H: 서비스 사망 판별, 기어 오류 유지(30초)·1회 재질의, UNKNOWN+UX null -> DRIVING. */
+/** 서비스 사망 판별, 기어 오류 유지(30초)·1회 재질의, UNKNOWN+UX null -> DRIVING. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class FixHTests {
+class ServiceDeathAndGearErrorTests {
     @Test fun serviceFailure_detectsDeadObjectAndWrapped() {
         assertTrue(isCarServiceFailure(DeadObjectException()))
         assertTrue(isCarServiceFailure(InvocationTargetException(RemoteException())))

@@ -174,7 +174,7 @@ class ManagedConnectionTests {
     @Test fun backoff_resetsOnlyAfterStable10s_boundary9999_10000() {
         fun secondWait(aliveMs: Long): Long {
             val e = Env()
-            val c1 = e.conn.connect()!!; e.conn.onFailure(c1.gen, dead); e.conn.connect()   // 1차 사망 -> 2초 대기
+            val c1 = e.conn.connect()!!; e.conn.onFailure(c1.gen, dead); e.conn.connect()   // 첫 번째 사망 -> 2초 대기
             e.now += 2000; val c2 = e.conn.connect()!!
             e.now += aliveMs; e.conn.onFailure(c2.gen, dead); e.conn.connect()
             return e.conn.retryDelayMs()

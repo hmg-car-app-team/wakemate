@@ -30,9 +30,9 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.util.Locale
 
-/** Fix-I: 비대칭 GearHold, 오류 기록+판정 원자화, 이전 세대 콜백 무시, 기어 연결 실패 경로, DriveState 조합, purge 잔존 감지, STT 경합. */
+/** 비대칭 GearHold, 오류 기록+판정 원자화, 이전 세대 콜백 무시, 기어 연결 실패 경로, DriveState 조합, purge 잔존 감지, STT 경합. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class FixITests {
+class GearHoldAndDriveStateTests {
     @get:Rule val tmp = TemporaryFolder()
 
     // ---- U2: PARK 은 짧게(5s), D/R/N 은 30s ----

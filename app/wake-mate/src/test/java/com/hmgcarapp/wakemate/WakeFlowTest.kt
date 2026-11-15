@@ -502,7 +502,7 @@ class WakeFlowTest {
         h.send(WakeEvent.Notify("c")); h.send(WakeEvent.DriveChanged(true)); assertNull("주행 진입 시 토스트 폐기", h.s.message)
     }
 
-    // ---------------- 리뷰 1라운드 ----------------
+    // ---------------- 스누즈·퀴즈 통과 흐름 ----------------
     /** t=0 에 1단계, t=250_000 에 퀴즈 통과 -> snooze=550_000, snoozeStage=S1. */
     private fun H.passedQuizAt250s(): H {
         send(WakeEvent.RiskUpdated(0, 45, Stage.S1)); send(WakeEvent.VoiceSpoken(1, true))

@@ -50,7 +50,7 @@ private class E1Tts : TtsPort {
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class FixE1Tests {
+class PurgeAndGearReconnectTests {
     @get:Rule val tmp = TemporaryFolder()
 
     // ---------- M5 ----------

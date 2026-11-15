@@ -6,8 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** 4차: 설정의 '개인 보정 초기화' 버튼 1개. */
-class Round4RestoreTest {
+/** 설정의 '개인 보정 초기화' 버튼 1개. */
+class CalibrationResetButtonTest {
     private fun src(rel: String) = File("src/main/java/com/hmgcarapp/wakemate/$rel").readText()
 
     @Test fun resetButtonCallsResetCalibration_parkedOnly() {
