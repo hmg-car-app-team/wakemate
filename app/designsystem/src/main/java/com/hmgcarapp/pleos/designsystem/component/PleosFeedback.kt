@@ -40,9 +40,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
@@ -138,7 +141,7 @@ fun PleosPopup(
     }
 }
 
-/** 단계별 반전 색 조합. 컴포넌트와 대비 테스트가 같은 함수를 쓴다. */
+/** 단계별 색 조합. 컴포넌트와 대비 테스트가 같은 함수를 쓴다. */
 data class PleosStageColors(
     val background: Color,
     val content: Color,
@@ -147,25 +150,29 @@ data class PleosStageColors(
     val track: Color,
 )
 
+/** 단계 색: 0=정상(초록), 1=주의(노랑), 2=경고(주황), 3 이상=위험(빨강). 화면 가장자리 빛·게이지·칩·실내 무드등이 같은 색 계열을 쓴다. */
+fun pleosStageTone(c: PleosColors, stageLevel: Int): Color = when {
+    stageLevel <= 0 -> c.informativeActive
+    stageLevel == 1 -> c.regulationYellow
+    stageLevel == 2 -> c.regulationOrange
+    else -> c.informativeNegative
+}
+
 /**
- * 위험 단계별 반전 색. 0=정상(기본 면), 1=주의(노랑), 2=경고(주황), 3 이상=위험(빨강).
- * 노랑·주황·빨강 배경에는 어두운 글씨를 쓴다(흰 글씨는 빨강 위에서 본문 대비 4.5:1에 못 미친다).
+ * 단계 색을 바탕으로 쓰는 작은 면(단계 칩)의 색. 노랑·주황·빨강 바탕에는 어두운 글씨를 쓴다
+ * (흰 글씨는 빨강 위에서 본문 대비 4.5:1에 못 미친다). 0단계는 기본 면.
  */
 fun pleosStageColors(c: PleosColors, stageLevel: Int): PleosStageColors {
     if (stageLevel <= 0) return PleosStageColors(c.surfaceBasic, c.textDarkPrimary, c.textDarkSecondary, c.informativeActive, c.basicAlphaDark100)
-    val bg = when (stageLevel) {
-        1 -> c.regulationYellow
-        2 -> c.regulationOrange
-        else -> c.informativeNegative
-    }
     val ink = c.basicStaticDark100
-    return PleosStageColors(bg, ink, ink.copy(alpha = 0.9f), ink, ink.copy(alpha = 0.18f))
+    return PleosStageColors(pleosStageTone(c, stageLevel), ink, ink.copy(alpha = 0.9f), ink, ink.copy(alpha = 0.18f))
 }
 
-/** 작동 중인 자극 카드 색. 위험 단계면 그 단계 색, 정상 단계면 진한 채움 면. */
-fun pleosActiveCardColors(c: PleosColors, stageLevel: Int): PleosStageColors =
-    if (stageLevel >= 1) pleosStageColors(c, stageLevel)
-    else PleosStageColors(c.buttonFilledEnabled, c.textLightPrimary, c.textLightSecondary, c.textLightPrimary, c.textLightPrimary.copy(alpha = 0.18f))
+/** 작동 중인 자극 카드: 기본 면에 단계 색을 옅게 섞고 글씨는 기본 글씨색을 쓴다(Pleos 화면 톤 유지). */
+fun pleosActiveCardColors(c: PleosColors, stageLevel: Int): PleosStageColors {
+    val tone = pleosStageTone(c, stageLevel)
+    return PleosStageColors(tone.copy(alpha = 0.16f).compositeOver(c.surfaceBasic), c.textDarkPrimary, c.textDarkSecondary, tone, tone.copy(alpha = 0.3f))
+}
 
 @Composable
 private fun StageGauge(fraction: Float, diameter: Dp, stroke: Dp, sc: PleosStageColors, content: @Composable ColumnScope.() -> Unit) {
@@ -185,9 +192,9 @@ private fun StageGauge(fraction: Float, diameter: Dp, stroke: Dp, sc: PleosStage
 enum class PleosHeroSize { Compact, Regular, Driving }
 
 /**
- * 위험 단계에 맞춰 배경 전체 색이 바뀌는 히어로 배너(아크 게이지 + 점수 + 단계 + 상세).
- * 색은 [pleosStageColors]. 단계가 바뀔 때 한 번만 부드럽게 전환하고 깜빡이지 않는다(주행 중 주의분산 최소화).
- * [scoreContent]·[stageContent] 는 배경에 맞는 글자색과 크기별 글꼴을 받는다. 높이를 주면 내용은 세로 가운데에 놓인다.
+ * 위험지수 히어로(아크 게이지 + 점수 + 단계 + 상세). 면은 Pleos 기본 면 그대로 두고 게이지만 단계 색으로 칠한다.
+ * 단계 강조는 화면 가장자리 빛([PleosAmbientEdgeGlow])과 떠 있는 카드([PleosFloatingAlertCard])가 맡는다.
+ * [scoreContent]·[stageContent] 는 글자색과 크기별 글꼴을 받는다. 높이를 주면 내용은 세로 가운데에 놓인다.
  */
 @Composable
 fun PleosStageHeroBanner(
@@ -203,8 +210,8 @@ fun PleosStageHeroBanner(
     val colors = PleosTheme.colors
     val type = PleosTheme.typography
     val d = PleosTheme.dimensions
-    val sc = pleosStageColors(colors, stageLevel)
-    val bg by animateColorAsState(sc.background, tween(PleosMotion.DurationMedium1), label = "hero-bg")
+    val accent by animateColorAsState(pleosStageTone(colors, stageLevel), tween(PleosMotion.DurationMedium1), label = "hero-accent")
+    val sc = PleosStageColors(colors.surfaceBasic, colors.textDarkPrimary, colors.textDarkSecondary, accent, colors.basicAlphaDark100)
     val fraction by animateFloatAsState(
         targetValue = ((score ?: 0).coerceIn(0, 100)) / 100f,
         animationSpec = tween(PleosMotion.DurationMedium1, easing = PleosMotion.Emphasized),
@@ -225,18 +232,18 @@ fun PleosStageHeroBanner(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(d.listRadius))
-            .background(bg)
-            .border(1.dp, if (stageLevel >= 1) sc.content.copy(alpha = 0.2f) else outline, RoundedCornerShape(d.listRadius))
+            .background(sc.background)
+            .border(1.dp, outline, RoundedCornerShape(d.listRadius))
             .padding(horizontal = padH, vertical = if (size == PleosHeroSize.Compact) 24.dp else 36.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
     ) {
         chipLabel?.let {
             Row(
-                modifier = Modifier.clip(RoundedCornerShape(100)).background(sc.content.copy(alpha = 0.1f)).padding(horizontal = 16.dp, vertical = 6.dp),
+                modifier = Modifier.clip(RoundedCornerShape(100)).background(accent.copy(alpha = 0.14f)).padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(10.dp).clip(CircleShape).background(sc.accent))
+                Box(Modifier.size(10.dp).clip(CircleShape).background(accent))
                 Text(it, style = type.labelMedium.strong(), color = sc.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -257,6 +264,92 @@ fun PleosStageHeroBanner(
     }
 }
 
+/**
+ * 화면 가장자리(베젤)에서 안쪽으로 번지는 단계 색 빛. 실내 무드등처럼 위험 단계를 곁눈으로 보이게 한다.
+ * 0단계면 그리지 않는다. 내용 위에 그림만 얹으므로 터치를 가로채지 않는다.
+ * 깜빡이지 않고, 단계가 바뀔 때만 색과 세기가 부드럽게 바뀐다(주행 중 주의분산 최소화).
+ */
+@Composable
+fun PleosAmbientEdgeGlow(
+    stageLevel: Int,
+    modifier: Modifier = Modifier,
+    depth: Dp = 150.dp,
+    /** 빛 세기 배율. 정차 화면처럼 읽을 글이 많은 곳에서는 낮춘다. */
+    intensity: Float = 1f,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val colors = PleosTheme.colors
+    val tone by animateColorAsState(pleosStageTone(colors, stageLevel.coerceAtLeast(1)), tween(PleosMotion.DurationLong1), label = "glow-tone")
+    val strength by animateFloatAsState(
+        targetValue = when {
+            stageLevel <= 0 -> 0f
+            stageLevel == 1 -> 0.55f
+            stageLevel == 2 -> 0.72f
+            else -> 0.9f
+        } * intensity.coerceIn(0f, 1f),
+        animationSpec = tween(PleosMotion.DurationLong1),
+        label = "glow-strength",
+    )
+    Box(
+        modifier = modifier.drawWithContent {
+            drawContent()
+            if (strength > 0.01f) {
+                val dp = depth.toPx().coerceAtMost(kotlin.math.min(size.width, size.height) / 3f)
+                val edge = tone.copy(alpha = strength)
+                val mid = tone.copy(alpha = strength * 0.3f)
+                val clear = tone.copy(alpha = 0f)
+                drawRect(Brush.verticalGradient(0f to edge, 0.3f to mid, 1f to clear, startY = 0f, endY = dp), size = Size(size.width, dp))
+                drawRect(Brush.verticalGradient(0f to clear, 0.7f to mid, 1f to edge, startY = size.height - dp, endY = size.height), topLeft = Offset(0f, size.height - dp), size = Size(size.width, dp))
+                drawRect(Brush.horizontalGradient(0f to edge, 0.3f to mid, 1f to clear, startX = 0f, endX = dp), size = Size(dp, size.height))
+                drawRect(Brush.horizontalGradient(0f to clear, 0.7f to mid, 1f to edge, startX = size.width - dp, endX = size.width), topLeft = Offset(size.width - dp, 0f), size = Size(dp, size.height))
+            }
+        },
+        content = content,
+    )
+}
+
+/**
+ * 화면 위에 떠 있는 경고 카드(주행 중 읽기 전용, 조작 요소 없음).
+ * 팝업 면과 그림자로 화면 위에 뜬 층을 만들고, 맨 위 단계 칩(단계 색 바탕 + 어두운 글씨)으로 단계를 알린다.
+ * 나타날 때 한 번만 살짝 내려오며 보이고, 사라질 때는 흐려진다.
+ */
+@Composable
+fun PleosFloatingAlertCard(
+    visible: Boolean,
+    stageLevel: Int,
+    chipLabel: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val colors = PleosTheme.colors
+    val d = PleosTheme.dimensions
+    val chip = pleosStageColors(colors, stageLevel)
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(tween(PleosMotion.DurationMedium1)) + slideInVertically(tween(PleosMotion.DurationMedium1, easing = PleosMotion.Emphasized)) { -it / 6 },
+        exit = fadeOut(tween(PleosMotion.DurationShort2)),
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(min = 720.dp, max = 1080.dp)
+                .pleosShadow(PleosShadowLevel.Level3, d.popupRadius, colors.backgroundPopup)
+                .clip(RoundedCornerShape(d.popupRadius))
+                .background(colors.backgroundPopup)
+                .padding(d.popupPadding),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(
+                modifier = Modifier.clip(RoundedCornerShape(100)).background(chip.background).padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(chipLabel, style = PleosTheme.typography.titleSmall, color = chip.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            content()
+        }
+    }
+}
+
 /** 물리 자극 1종 카드 명세. [active] 는 차량이 작동을 확인해 준 경우만 true. */
 data class PleosStimulusSpec(
     val title: String,
@@ -266,7 +359,7 @@ data class PleosStimulusSpec(
 )
 
 /**
- * 차량 물리 자극 카드 줄. 작동이 확인된 장치만 단계 색으로 켜진다.
+ * 차량 물리 자극 카드 줄. 작동이 확인된 장치만 단계 색을 옅게 섞은 면과 단계 색 점으로 켜진다.
  * 주행 중에는 [showDetail]=false 로 제목과 상태만 보여 읽을 글을 줄인다.
  */
 @Composable
@@ -289,13 +382,13 @@ fun PleosStimulusStrip(
                     .weight(1f)
                     .clip(RoundedCornerShape(d.listRadius))
                     .background(bg)
-                    .border(1.dp, if (item.active) sc.content.copy(alpha = 0.2f) else outline, RoundedCornerShape(d.listRadius))
+                    .border(1.dp, if (item.active) sc.track else outline, RoundedCornerShape(d.listRadius))
                     .padding(horizontal = 24.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(item.title, style = PleosTheme.typography.bodyMedium.strong(), color = sc.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (item.active) sc.content else sc.accent))
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(sc.accent))
                     Text(item.stateLabel, style = PleosTheme.typography.labelMedium.strong(), color = sc.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (showDetail) Text(item.detail, style = PleosTheme.typography.labelMedium, color = sc.contentSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)

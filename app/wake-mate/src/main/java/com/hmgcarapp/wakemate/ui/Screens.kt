@@ -1,6 +1,7 @@
 package com.hmgcarapp.wakemate.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
@@ -17,15 +18,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.text.style.LineBreak
 import com.hmgcarapp.core.drive.DriveState
 import com.hmgcarapp.core.ui.rememberDriveSnapshot
+import com.hmgcarapp.pleos.designsystem.component.PleosAmbientEdgeGlow
 import com.hmgcarapp.pleos.designsystem.component.PleosButton
 import com.hmgcarapp.pleos.designsystem.component.PleosButtonHierarchy
 import com.hmgcarapp.pleos.designsystem.component.PleosFactorBarRow
+import com.hmgcarapp.pleos.designsystem.component.PleosFloatingAlertCard
 import com.hmgcarapp.pleos.designsystem.component.PleosHeroSize
 import com.hmgcarapp.pleos.designsystem.component.PleosListItem
 import com.hmgcarapp.pleos.designsystem.component.PleosPanel
@@ -59,8 +64,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 한국어 문장이 단어 중간에서 끊기지 않게(어절 단위 줄바꿈, API 33+). */
+/** 한국어 문장이 단어 중간에서 끊기지 않게(어절 단위 줄바꿈, API 33+). 어절 단위 규칙은 글자 언어가 한국어일 때만 동작해 함께 지정한다. */
 private val PhraseBreak = LineBreak(LineBreak.Strategy.Balanced, LineBreak.Strictness.Normal, LineBreak.WordBreak.Phrase)
+private val Korean = LocaleList("ko-KR")
+private fun TextStyle.phrase(): TextStyle = copy(lineBreak = PhraseBreak, localeList = Korean)
 
 @Composable
 private fun Txt(t: String, style: TextStyle = PleosTheme.typography.bodyMedium, secondary: Boolean = false, modifier: Modifier = Modifier) =
@@ -109,17 +116,20 @@ fun WakeMateApp(c: AppController) {
             onDismissRequest = { c.cancelReplace() }, cancelLabel = "취소",
         )
     }
-    PleosScaffold(
-        title = "깨워드림",
-        subtitle = (if (s.risk == null && s.wake.alert == null) "준비 중" else "졸음 ${activeStageOf(s).label}") + " · " + (if (driving) "주행 중" else "정차 중"),
-        toastState = toast,
-        supportingPane = if (driving || s.loading) null else { m -> Column(m.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(PleosSpacing.m)) { Summary(c, s) } },
-        supportingPaneWidth = paneWidth,
-    ) { mode ->
-        when {
-            driving -> DrivingView(c, s)
-            s.loading -> PleosPanel(Modifier.fillMaxWidth()) { Txt("불러오는 중…", secondary = true, modifier = Modifier.testTag("loading")) }
-            else -> Parked(c, s, mode)
+    // 단계가 오르면 화면 가장자리(베젤)부터 단계 색 빛이 번진다(실내 무드등과 같은 색 계열). 화면 구성은 Pleos 기본 그대로 둔다
+    PleosAmbientEdgeGlow(stageLevel = if (s.loading) 0 else activeStageOf(s).n, modifier = Modifier.fillMaxSize(), intensity = if (driving) 1f else 0.5f) {
+        PleosScaffold(
+            title = "깨워드림",
+            subtitle = (if (s.risk == null && s.wake.alert == null) "준비 중" else "졸음 ${activeStageOf(s).label}") + " · " + (if (driving) "주행 중" else "정차 중"),
+            toastState = toast,
+            supportingPane = if (driving || s.loading) null else { m -> Column(m.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(PleosSpacing.m)) { Summary(c, s) } },
+            supportingPaneWidth = paneWidth,
+        ) { mode ->
+            when {
+                driving -> DrivingView(c, s)
+                s.loading -> PleosPanel(Modifier.fillMaxWidth()) { Txt("불러오는 중…", secondary = true, modifier = Modifier.testTag("loading")) }
+                else -> Parked(c, s, mode)
+            }
         }
     }
 }
@@ -130,26 +140,38 @@ private fun DrivingView(c: AppController, s: UiState) {
     val r = s.risk
     val stage = activeStageOf(s)
     val a = s.wake.alert
-    Column(Modifier.fillMaxSize().testTag("driving_view"), verticalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
-        // 화면 대부분을 단계 색으로 채워 곁눈으로도 단계가 보이게 한다(아래 자극 카드 자리만 남긴다)
-        PleosStageHeroBanner(
-            score = r?.score,
-            stageLevel = stage.n,
-            modifier = Modifier.fillMaxHeight(0.8f),
-            size = PleosHeroSize.Driving,
-            scoreContent = { fg, st -> Text(r?.score?.toString() ?: "–", style = st, color = fg, modifier = Modifier.testTag("risk_score")) },
-            stageContent = { fg, st -> Text(if (r == null && a == null) "계산 중" else stage.label, style = st, color = fg, modifier = Modifier.testTag("risk_stage")) },
-        ) { fgPrimary, fgSecondary ->
-            if (a != null) {
-                a.shelterLine?.let { Text(it, style = PleosTheme.typography.titleMedium, color = fgPrimary, modifier = Modifier.testTag("banner_shelter")) }
-                if (!Status.isProgress(a.status)) Text(a.status, style = PleosTheme.typography.titleSmall, color = fgPrimary, modifier = Modifier.testTag("banner_status"))
-                a.detail?.let { Text(it, style = PleosTheme.typography.bodyLarge.copy(lineBreak = PhraseBreak), color = fgSecondary, modifier = Modifier.testTag("banner_detail")) }
-            } else {
+    val specs = stimulusSpecs(s)
+    Box(Modifier.fillMaxSize().testTag("driving_view")) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
+            PleosStageHeroBanner(
+                score = r?.score,
+                stageLevel = stage.n,
+                modifier = Modifier.fillMaxHeight(0.8f),
+                size = PleosHeroSize.Driving,
+                scoreContent = { fg, st -> Text(r?.score?.toString() ?: "–", style = st, color = fg, modifier = Modifier.testTag("risk_score")) },
+                stageContent = { fg, st -> Text(if (r == null && a == null) "계산 중" else stage.label, style = st, color = fg, modifier = Modifier.testTag("risk_stage")) },
+            ) { fgPrimary, fgSecondary ->
                 Text("쉬지 않은 주행 ${s.drivingMin}분", style = PleosTheme.typography.titleSmall, color = fgPrimary, modifier = Modifier.testTag("driving_idle"))
-                Text(RestAdvice.next(s.drivingMin, stage), style = PleosTheme.typography.bodyLarge, color = fgSecondary)
+                if (stage == Stage.NONE) Text(RestAdvice.next(s.drivingMin, stage), style = PleosTheme.typography.bodyLarge.phrase(), color = fgSecondary)
             }
+            PleosStimulusStrip(items = specs, stageLevel = stage.n, showDetail = false)
         }
-        PleosStimulusStrip(items = stimulusSpecs(s), stageLevel = stage.n, showDetail = false)
+        // 단계가 오르거나 깨우기가 진행 중이면 화면 위에 카드를 띄운다(읽기 전용, 조작 없음)
+        PleosFloatingAlertCard(
+            visible = stage != Stage.NONE,
+            stageLevel = stage.n,
+            chipLabel = "졸음 ${stage.label}" + (r?.let { " · ${it.score}점" } ?: ""),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            if (a != null) {
+                a.shelterLine?.let { Txt(it, PleosTheme.typography.headlineSmall, modifier = Modifier.testTag("banner_shelter")) }
+                if (!Status.isProgress(a.status)) Txt(a.status, PleosTheme.typography.titleSmall, modifier = Modifier.testTag("banner_status"))
+                a.detail?.let { Txt(it, PleosTheme.typography.bodyLarge.phrase(), secondary = true, modifier = Modifier.testTag("banner_detail")) }
+            }
+            if (a?.shelterLine == null) Txt(RestAdvice.next(s.drivingMin, stage), PleosTheme.typography.titleSmall.phrase())
+            val on = specs.filter { it.active }.map { it.title }
+            if (on.isNotEmpty()) Txt("작동 중 · " + on.joinToString(" · "), PleosTheme.typography.labelMedium, secondary = true)
+        }
     }
 }
 
@@ -168,7 +190,7 @@ private fun Summary(c: AppController, s: UiState) {
         stageContent = { fg, st -> Text(if (r == null && s.wake.alert == null) "계산 중" else stage.label, style = st, color = fg) },
     ) { fgPrimary, fgSecondary ->
         Text("연속 주행 ${s.drivingMin}분" + (s.recircMin?.let { " · 내기순환 ${it}분" } ?: ""), style = PleosTheme.typography.bodyMedium, color = fgPrimary)
-        Text(RestAdvice.next(s.drivingMin, stage), style = PleosTheme.typography.labelMedium.copy(lineBreak = PhraseBreak), color = fgSecondary)
+        Text(RestAdvice.next(s.drivingMin, stage), style = PleosTheme.typography.labelMedium.phrase(), color = fgSecondary)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
         PleosButton("졸리지 않아요", onClick = { c.notSleepy() }, hierarchy = PleosButtonHierarchy.Secondary, modifier = Modifier.testTag("btn_not_sleepy"))
