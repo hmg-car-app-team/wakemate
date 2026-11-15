@@ -126,9 +126,13 @@ object HvacReport {
         val bad = results.filter { !it.ok }
         val parts = ArrayList<String>()
         if (ok.isNotEmpty()) parts += ok.joinToString(", ") { okPhrase(it.kind) }
-        bad.forEach { parts += "${topic(it.kind)} ${HvacErrors.reason(it.code)}" }
+        bad.forEach { parts += "${topic(it.kind)} ${reasonFor(it.kind, it.code)}" }
         return parts.joinToString(". ")
     }
+
+    /** 시트·조명은 공조가 아니므로 주행 제한 문구를 따로 쓴다. */
+    private fun reasonFor(kind: String, code: Int?): String =
+        if (code == HvacErrors.DRIVING_RESTRICTED && (kind == "seat" || kind == "ambient")) "주행 중에는 차량 정책상 앱이 바꿀 수 없어요" else HvacErrors.reason(code)
 
     /** 일부/전부 실패했는지. */
     fun hasFailure(results: List<ItemResult>) = results.any { !it.ok }

@@ -77,7 +77,7 @@ class HvacShelterTest {
         assertEquals("시트 통풍을 켰어요, 실내 조명을 경고색으로 바꿨어요",
             HvacReport.summary(listOf(ItemResult("seat", true, null), ItemResult("ambient", true, null)), planned, true))
         val partial = HvacReport.summary(listOf(ItemResult("seat", true, null), ItemResult("ambient", false, HvacErrors.DRIVING_RESTRICTED)), planned, true)
-        assertTrue(partial, partial.startsWith("시트 통풍을 켰어요. 실내 조명은") && partial.contains("주행 중"))
+        assertEquals("시트 통풍을 켰어요. 실내 조명은 주행 중에는 차량 정책상 앱이 바꿀 수 없어요", partial)
     }
 
     @Test fun plan_fanTargetWithinCapabilityBounds() {

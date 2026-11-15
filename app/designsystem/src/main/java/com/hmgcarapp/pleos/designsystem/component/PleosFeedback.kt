@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.hmgcarapp.pleos.designsystem.theme.PleosColors
 import com.hmgcarapp.pleos.designsystem.theme.PleosMotion
 import com.hmgcarapp.pleos.designsystem.theme.PleosRadius
 import com.hmgcarapp.pleos.designsystem.theme.PleosShadowLevel
@@ -135,12 +136,52 @@ fun PleosPopup(
     }
 }
 
+/** 단계별 반전 색 조합. 컴포넌트와 대비 테스트가 같은 함수를 쓴다. */
+data class PleosStageColors(
+    val background: Color,
+    val content: Color,
+    val contentSecondary: Color,
+    val accent: Color,
+    val track: Color,
+)
+
 /**
- * 단계별 전면 색상 반전 히어로 배너.
- * - 0단계(정상): 기본 서피스 + 그린 아크 게이지
- * - 1단계(주의): 앰버(regulationYellow) 전면 색상 반전 + 다크 고대비 텍스트
- * - 2단계(경고): 오렌지(regulationOrange) 전면 색상 반전 + 다크 고대비 텍스트
- * - 3단계(위험): 크림슨 레드(informativeNegative) 전면 색상 반전 + 화이트 고대비 텍스트
+ * 위험 단계별 반전 색. 0=정상(기본 면), 1=주의(노랑), 2=경고(주황), 3 이상=위험(빨강).
+ * 노랑·주황·빨강 배경에는 어두운 글씨를 쓴다(흰 글씨는 빨강 위에서 본문 대비 4.5:1에 못 미친다).
+ */
+fun pleosStageColors(c: PleosColors, stageLevel: Int): PleosStageColors {
+    if (stageLevel <= 0) return PleosStageColors(c.surfaceBasic, c.textDarkPrimary, c.textDarkSecondary, c.informativeActive, c.basicAlphaDark100)
+    val bg = when (stageLevel) {
+        1 -> c.regulationYellow
+        2 -> c.regulationOrange
+        else -> c.informativeNegative
+    }
+    val ink = c.basicStaticDark100
+    return PleosStageColors(bg, ink, ink.copy(alpha = 0.9f), ink, ink.copy(alpha = 0.18f))
+}
+
+/** 작동 중인 자극 카드 색. 위험 단계면 그 단계 색, 정상 단계면 진한 채움 면. */
+fun pleosActiveCardColors(c: PleosColors, stageLevel: Int): PleosStageColors =
+    if (stageLevel >= 1) pleosStageColors(c, stageLevel)
+    else PleosStageColors(c.buttonFilledEnabled, c.textLightPrimary, c.textLightSecondary, c.textLightPrimary, c.textLightPrimary.copy(alpha = 0.18f))
+
+@Composable
+private fun StageGauge(fraction: Float, diameter: Dp, stroke: Dp, sc: PleosStageColors, content: @Composable ColumnScope.() -> Unit) {
+    Box(modifier = Modifier.size(diameter), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(diameter)) {
+            val sw = stroke.toPx()
+            val pad = sw / 2f
+            val arc = Size(this.size.width - sw, this.size.height - sw)
+            drawArc(sc.track, 135f, 270f, false, Offset(pad, pad), arc, style = Stroke(sw, cap = StrokeCap.Round))
+            drawArc(sc.accent, 135f, 270f * fraction, false, Offset(pad, pad), arc, style = Stroke(sw, cap = StrokeCap.Round))
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally, content = content)
+    }
+}
+
+/**
+ * 위험 단계에 맞춰 배경 전체 색이 바뀌는 히어로 배너(아크 게이지 + 점수 + 단계 + 상세).
+ * 색은 [pleosStageColors]. 단계가 바뀔 때 한 번만 부드럽게 전환하고 깜빡이지 않는다(주행 중 주의분산 최소화).
  */
 @Composable
 fun PleosStageHeroBanner(
@@ -148,148 +189,58 @@ fun PleosStageHeroBanner(
     stageLevel: Int,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    bannerTag: String? = null,
+    chipLabel: String? = null,
     scoreContent: @Composable (Color) -> Unit,
     stageContent: @Composable (Color) -> Unit,
     detailContent: @Composable ColumnScope.(Color, Color) -> Unit = { _, _ -> },
 ) {
     val colors = PleosTheme.colors
     val d = PleosTheme.dimensions
-    val targetBg = when {
-        stageLevel >= 3 -> colors.informativeNegative
-        stageLevel == 2 -> colors.regulationOrange
-        stageLevel == 1 -> colors.regulationYellow
-        else -> colors.surfaceBasic
-    }
-    val bg by animateColorAsState(targetBg, tween(PleosMotion.DurationMedium1), label = "hero-bg")
-    val fgPrimary = when {
-        stageLevel >= 3 -> colors.basicStaticLight100
-        stageLevel >= 1 -> colors.basicStaticDark100
-        else -> colors.textDarkPrimary
-    }
-    val fgSecondary = when {
-        stageLevel >= 3 -> colors.basicStaticLight200
-        stageLevel >= 1 -> colors.basicStaticDark200
-        else -> colors.textDarkSecondary
-    }
-    val arcColor = when {
-        stageLevel >= 3 -> colors.basicStaticLight100
-        stageLevel >= 1 -> colors.basicStaticDark100
-        else -> colors.informativeActive
-    }
-    val trackColor = when {
-        stageLevel >= 3 -> colors.basicAlphaLight200
-        stageLevel >= 1 -> colors.basicAlphaDark200
-        else -> colors.basicAlphaDark100
-    }
+    val sc = pleosStageColors(colors, stageLevel)
+    val bg by animateColorAsState(sc.background, tween(PleosMotion.DurationMedium1), label = "hero-bg")
     val fraction by animateFloatAsState(
         targetValue = ((score ?: 0).coerceIn(0, 100)) / 100f,
         animationSpec = tween(PleosMotion.DurationMedium1, easing = PleosMotion.Emphasized),
         label = "hero-arc",
     )
-    val gaugeSize = if (compact) 148.dp else 220.dp
-    val strokeDp = if (compact) 14.dp else 20.dp
-
+    val outline = if (colors.isDark) colors.basicAlphaDark100 else colors.basicAlphaDark50
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(d.listRadius))
             .background(bg)
-            .border(
-                width = if (stageLevel >= 1) 2.dp else 1.dp,
-                color = if (stageLevel >= 1) fgPrimary.copy(alpha = 0.24f) else if (colors.isDark) colors.basicAlphaDark100 else colors.basicAlphaDark50,
-                shape = RoundedCornerShape(d.listRadius),
-            )
-            .padding(horizontal = if (compact) 24.dp else 36.dp, vertical = if (compact) 24.dp else 32.dp),
-        verticalArrangement = Arrangement.spacedBy(if (compact) 16.dp else 24.dp),
+            .border(1.dp, if (stageLevel >= 1) sc.content.copy(alpha = 0.2f) else outline, RoundedCornerShape(d.listRadius))
+            .padding(horizontal = if (compact) 24.dp else 40.dp, vertical = if (compact) 24.dp else 36.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        if (bannerTag != null) {
+        chipLabel?.let {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.clip(RoundedCornerShape(100)).background(sc.content.copy(alpha = 0.1f)).padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(100))
-                        .background(fgPrimary.copy(alpha = if (stageLevel >= 1) 0.16f else 0.08f))
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(arcColor))
-                    Text(bannerTag, style = PleosTheme.typography.labelMedium.strong(), color = fgPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(
-                    when {
-                        stageLevel >= 3 -> "즉시 정차 권고 · 전면 위험 경보"
-                        stageLevel == 2 -> "물리 각성 장치 작동 · 환기 및 시트·조명 제어"
-                        stageLevel == 1 -> "주의 환기 단계 · 음성 안내"
-                        else -> "실시간 차량 신호 감시 중"
-                    },
-                    style = PleosTheme.typography.labelMedium,
-                    color = fgSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Box(Modifier.size(10.dp).clip(CircleShape).background(sc.accent))
+                Text(it, style = PleosTheme.typography.labelMedium.strong(), color = sc.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-
-        if (compact) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(modifier = Modifier.size(gaugeSize), contentAlignment = Alignment.Center) {
-                    Canvas(Modifier.size(gaugeSize)) {
-                        val sw = strokeDp.toPx()
-                        val pad = sw / 2f
-                        val arcSize = Size(size.width - sw, size.height - sw)
-                        drawArc(color = trackColor, startAngle = 135f, sweepAngle = 270f, useCenter = false, topLeft = Offset(pad, pad), size = arcSize, style = Stroke(width = sw, cap = StrokeCap.Round))
-                        drawArc(color = arcColor, startAngle = 135f, sweepAngle = 270f * fraction, useCenter = false, topLeft = Offset(pad, pad), size = arcSize, style = Stroke(width = sw, cap = StrokeCap.Round))
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        scoreContent(fgPrimary)
-                    }
-                }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    stageContent(fgPrimary)
-                    detailContent(fgPrimary, fgSecondary)
-                }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 24.dp else 40.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            StageGauge(fraction, if (compact) 148.dp else 240.dp, if (compact) 14.dp else 22.dp, sc) {
+                scoreContent(sc.content)
+                if (!compact) Text("/ 100", style = PleosTheme.typography.labelMedium, color = sc.contentSecondary)
             }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(36.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(modifier = Modifier.size(gaugeSize), contentAlignment = Alignment.Center) {
-                    Canvas(Modifier.size(gaugeSize)) {
-                        val sw = strokeDp.toPx()
-                        val pad = sw / 2f
-                        val arcSize = Size(size.width - sw, size.height - sw)
-                        drawArc(color = trackColor, startAngle = 135f, sweepAngle = 270f, useCenter = false, topLeft = Offset(pad, pad), size = arcSize, style = Stroke(width = sw, cap = StrokeCap.Round))
-                        drawArc(color = arcColor, startAngle = 135f, sweepAngle = 270f * fraction, useCenter = false, topLeft = Offset(pad, pad), size = arcSize, style = Stroke(width = sw, cap = StrokeCap.Round))
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        scoreContent(fgPrimary)
-                        Text("/ 100", style = PleosTheme.typography.labelMedium, color = fgSecondary)
-                    }
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    stageContent(fgPrimary)
-                    detailContent(fgPrimary, fgSecondary)
-                }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp)) {
+                stageContent(sc.content)
+                detailContent(sc.content, sc.contentSecondary)
             }
         }
     }
 }
 
-/** 물리 자극 1종 상태 데이터. */
+/** 물리 자극 1종 카드 명세. [active] 는 차량이 작동을 확인해 준 경우만 true. */
 data class PleosStimulusSpec(
     val title: String,
     val stateLabel: String,
@@ -298,89 +249,39 @@ data class PleosStimulusSpec(
 )
 
 /**
- * 차량 물리 자극 3종(공조 냉풍 환기 · 운전석 시트 통풍 · 실내 앰비언트 조명/경고음) 라이브 상태 스트립.
- * 작동 중인 장치는 단계별 강조 배경으로 반전 점등되어 어떤 하드웨어가 깨우고 있는지 한눈에 보여줍니다.
+ * 차량 물리 자극 카드 줄. 작동이 확인된 장치만 단계 색으로 켜진다.
+ * 주행 중에는 [showDetail]=false 로 제목과 상태만 보여 읽을 글을 줄인다.
  */
 @Composable
 fun PleosStimulusStrip(
     items: List<PleosStimulusSpec>,
     stageLevel: Int,
     modifier: Modifier = Modifier,
+    showDetail: Boolean = true,
 ) {
     val colors = PleosTheme.colors
     val d = PleosTheme.dimensions
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(PleosSpacing.m),
-    ) {
+    val idle = PleosStageColors(colors.surfaceBasic, colors.textDarkPrimary, colors.textDarkSecondary, colors.textDarkTertiary, colors.basicAlphaDark100)
+    val outline = if (colors.isDark) colors.basicAlphaDark100 else colors.basicAlphaDark50
+    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
         items.forEach { item ->
-            val activeBg = when {
-                !item.active -> colors.surfaceBasic
-                stageLevel >= 3 -> colors.informativeNegative
-                stageLevel == 2 -> colors.regulationOrange
-                stageLevel == 1 -> colors.regulationYellow
-                else -> colors.informativePositive
-            }
-            val cardBg by animateColorAsState(activeBg, tween(PleosMotion.DurationMedium1), label = "stim-bg")
-            val fgPrimary = when {
-                !item.active -> colors.textDarkPrimary
-                stageLevel >= 3 || stageLevel == 0 -> colors.basicStaticLight100
-                else -> colors.basicStaticDark100
-            }
-            val fgSecondary = when {
-                !item.active -> colors.textDarkSecondary
-                stageLevel >= 3 || stageLevel == 0 -> colors.basicStaticLight200
-                else -> colors.basicStaticDark200
-            }
-            val dotColor = when {
-                !item.active -> colors.textDarkTertiary
-                stageLevel >= 3 || stageLevel == 0 -> colors.basicStaticLight100
-                else -> colors.basicStaticDark100
-            }
+            val sc = if (item.active) pleosActiveCardColors(colors, stageLevel) else idle
+            val bg by animateColorAsState(sc.background, tween(PleosMotion.DurationMedium1), label = "stimulus-bg")
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(d.listRadius))
-                    .background(cardBg)
-                    .border(
-                        width = if (item.active) 2.dp else 1.dp,
-                        color = if (item.active) fgPrimary.copy(alpha = 0.28f) else if (colors.isDark) colors.basicAlphaDark100 else colors.basicAlphaDark50,
-                        shape = RoundedCornerShape(d.listRadius),
-                    )
+                    .background(bg)
+                    .border(1.dp, if (item.active) sc.content.copy(alpha = 0.2f) else outline, RoundedCornerShape(d.listRadius))
                     .padding(horizontal = 24.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        item.title,
-                        style = PleosTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = fgPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(100))
-                            .background(fgPrimary.copy(alpha = if (item.active) 0.18f else 0.08f))
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
-                        Text(item.stateLabel, style = PleosTheme.typography.labelSmall.strong(), color = fgPrimary, maxLines = 1)
-                    }
+                Text(item.title, style = PleosTheme.typography.bodyMedium.strong(), color = sc.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (item.active) sc.content else sc.accent))
+                    Text(item.stateLabel, style = PleosTheme.typography.labelMedium.strong(), color = sc.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(
-                    item.detail,
-                    style = PleosTheme.typography.labelMedium,
-                    color = fgSecondary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (showDetail) Text(item.detail, style = PleosTheme.typography.labelMedium, color = sc.contentSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }

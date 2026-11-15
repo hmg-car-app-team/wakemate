@@ -87,6 +87,8 @@ data class WakeState(
     val baseTempC: Float? = null,
     /** 이번 에피소드에서 1단계 외기 전환 제안을 이미 했는지(반복 제안 억제). 휴식·에피소드 초기화 때 해제. */
     val ventOffered: Boolean = false,
+    /** 이번 에피소드에서 차량이 응답한 마지막 쓰기 결과(항목별 최신). 자극 카드 '작동' 표시의 근거. 휴식·에피소드 초기화 때 비운다. */
+    val lastHvac: List<ItemResult> = emptyList(),
 ) {
     val inFlight: Boolean get() = alert?.finished == false
 }
@@ -211,7 +213,7 @@ object WakeFlow {
             is WakeEvent.Options -> s.copy(voiceReply = e.voiceReply, hvacControl = e.hvacControl) to NONE
             is WakeEvent.RiskUpdated -> risk(s, e)
             is WakeEvent.DriveChanged -> drive(s, e.driving)
-            WakeEvent.Rested -> s.copy(episode = Stage.NONE, snoozeUntilMs = null, snoozeStage = Stage.NONE, lastAlertAtMs = null, noneSinceMs = null, baseTempC = null, ventOffered = false) to NONE
+            WakeEvent.Rested -> s.copy(episode = Stage.NONE, snoozeUntilMs = null, snoozeStage = Stage.NONE, lastAlertAtMs = null, noneSinceMs = null, baseTempC = null, ventOffered = false, lastHvac = emptyList()) to NONE
             is WakeEvent.ForceStage -> fire(s, e.stage)
             is WakeEvent.ShelterPlanned -> planned(s, e)
             is WakeEvent.VoiceSpoken -> spoken(s, e)
@@ -251,7 +253,8 @@ object WakeFlow {
             val since = s.noneSinceMs ?: e.nowMs
             s.copy(noneSinceMs = since, episode = if (e.nowMs - since >= AlertPolicy.EPISODE_RESET_MS) Stage.NONE else s.episode,
                 baseTempC = if (e.nowMs - since >= AlertPolicy.EPISODE_RESET_MS) null else s.baseTempC,
-                ventOffered = if (e.nowMs - since >= AlertPolicy.EPISODE_RESET_MS) false else s.ventOffered)
+                ventOffered = if (e.nowMs - since >= AlertPolicy.EPISODE_RESET_MS) false else s.ventOffered,
+                lastHvac = if (e.nowMs - since >= AlertPolicy.EPISODE_RESET_MS) emptyList() else s.lastHvac)
         } else s.copy(noneSinceMs = null)
         return if (AlertPolicy.shouldFire(s, e.stage, e.nowMs)) fire(s, e.stage) else s to NONE
     }
@@ -326,9 +329,12 @@ object WakeFlow {
 
     private fun hvac(s0: WakeState, e: WakeEvent.HvacApplied): Pair<WakeState, List<WakeEffect>> {
         // 기준 온도는 알림 id 와 무관하게 기억한다(교체된 알림의 쓰기도 실제로 적용되므로)
-        val s = s0.copy(baseTempC = s0.baseTempC ?: e.baseTempC)
-        val a = s.alert ?: return s to NONE
-        if (a.id != e.id || a.finished) return s to NONE
+        val s1 = s0.copy(baseTempC = s0.baseTempC ?: e.baseTempC)
+        val a = s1.alert ?: return s1 to NONE
+        if (a.id != e.id) return s1 to NONE
+        // 현재 알림의 쓰기 결과만 자극 카드의 근거로 남긴다(교체된 알림의 결과는 상태를 바꾸지 않는다)
+        val s = s1.copy(lastHvac = s1.lastHvac.filter { o -> e.results.none { it.kind == o.kind } } + e.results)
+        if (a.finished) return s to NONE
         val summary = HvacReport.summary(e.results, e.planned, e.connected, e.ventOnly)
         val fin = when {
             !e.connected -> Status.FAILED

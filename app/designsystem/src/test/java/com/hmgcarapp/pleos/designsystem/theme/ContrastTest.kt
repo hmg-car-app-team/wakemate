@@ -3,6 +3,8 @@ package com.hmgcarapp.pleos.designsystem.theme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
+import com.hmgcarapp.pleos.designsystem.component.pleosActiveCardColors
+import com.hmgcarapp.pleos.designsystem.component.pleosStageColors
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -58,6 +60,20 @@ class ContrastTest {
             // 오류 안내는 regulation_red. 큰 글씨(Label M 24sp 이상)라 3:1 기준을 씁니다.
             val value = ratio(c.regulationRed, c.surfaceBasic)
             assertTrue("$mode 오류 텍스트 대비 %.2f:1 < 3:1".format(value), value >= 3.0)
+        }
+    }
+
+    @Test
+    fun stageInversionBannersAndActiveCards() {
+        themes.forEach { (mode, c) ->
+            (0..3).forEach { level ->
+                val hero = pleosStageColors(c, level)
+                assertAA("$mode 히어로 $level 본문", hero.content, hero.background)
+                assertAA("$mode 히어로 $level 보조", hero.contentSecondary, hero.background)
+                val card = pleosActiveCardColors(c, level)
+                assertAA("$mode 작동 카드 $level 본문", card.content, card.background)
+                assertAA("$mode 작동 카드 $level 보조", card.contentSecondary, card.background)
+            }
         }
     }
 }

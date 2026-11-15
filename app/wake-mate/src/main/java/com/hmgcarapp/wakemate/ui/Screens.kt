@@ -45,13 +45,13 @@ import com.hmgcarapp.wakemate.app.WakeRuntime
 import com.hmgcarapp.wakemate.app.Page
 import com.hmgcarapp.wakemate.app.UiState
 import com.hmgcarapp.wakemate.domain.Alert
-import com.hmgcarapp.wakemate.domain.HvacPlan
 import com.hmgcarapp.wakemate.domain.NaviStatus
 import com.hmgcarapp.wakemate.domain.NaviText
 import com.hmgcarapp.wakemate.domain.RestAdvice
 import com.hmgcarapp.wakemate.domain.RiskResult
 import com.hmgcarapp.wakemate.domain.Stage
 import com.hmgcarapp.wakemate.domain.Status
+import com.hmgcarapp.wakemate.domain.StimulusView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -73,74 +73,20 @@ private fun activeStageOf(s: UiState): Stage {
     return if (aStage.n > rStage.n) aStage else rStage
 }
 
-/** 차량 물리 자극 3종(공조 환기·운전석 시트 통풍·실내 앰비언트 조명 및 경고음) 실시간 상태 명세. */
-private fun buildStimulusSpecs(s: UiState): List<PleosStimulusSpec> {
-    val stage = activeStageOf(s)
-    val now = s.hvac.now
-    val alert = s.wake.alert
-    val hvacOn = s.p.settings.hvacControl
-    val beepOn = s.p.settings.beep
-
-    val ventActive = (stage.n >= Stage.S2.n && hvacOn) || now.recirc == false || (alert?.hvacSummary != null)
-    val airLabel = when (now.recirc) {
-        false -> "외기 유입"
-        true -> "내기 순환"
-        null -> if (stage.n >= Stage.S2.n && hvacOn) "외기 전환 요청" else "대기"
-    }
-    val fanPart = now.fan?.let { "풍량 ${it}단" } ?: if (stage.n >= Stage.S2.n && hvacOn) "강풍 목표 80%" else "풍량 자동"
-    val tempPart = now.tempC?.let { String.format(Locale.KOREA, "%.1f℃", it) } ?: if (stage.n >= Stage.S2.n && hvacOn) "-2.0℃ 냉각" else "온도 유지"
-
-    val seatLevel = now.seatVent ?: 0
-    val seatActive = seatLevel > 0 || (stage.n >= Stage.S2.n && hvacOn)
-    val seatState = when {
-        seatLevel > 0 -> "통풍 ${seatLevel}단 가동"
-        stage.n >= Stage.S2.n && hvacOn -> "통풍 각성 가동"
-        else -> "대기"
-    }
-    val seatDetail = when {
-        seatLevel > 0 -> "운전석 시트 냉풍 ${seatLevel}단으로 체온 각성 유지 중"
-        stage.n >= Stage.S2.n && hvacOn -> "경고 단계 진입 시 운전석 시트 통풍 최대 단계 자동 가동"
-        else -> "2단계 경고 시 운전석 시트 통풍을 켜서 졸음을 깨웁니다"
-    }
-
-    val ambientAlert = now.ambientColor == HvacPlan.ALERT_AMBIENT_ARGB || (stage.n >= Stage.S2.n && hvacOn)
-    val soundAlert = stage.n >= Stage.S2.n && beepOn
-    val lightSoundActive = ambientAlert || soundAlert || stage == Stage.S1
-    val lightSoundState = when {
-        stage == Stage.S3 -> "적색 경보 · 경고음"
-        stage == Stage.S2 -> "주황 경보 · 경고음"
-        stage == Stage.S1 -> "황색 주의 · 음성"
-        ambientAlert -> "경고 조명 켜짐"
-        else -> "대기"
-    }
-    val lightSoundDetail = when {
-        stage == Stage.S3 -> "실내 무드등 적색 반전 + 고강도 경고음 + 쉼터 경로 음성 안내"
-        stage == Stage.S2 -> "실내 무드등 경고색 동기화 + 각성 경고음 및 음성 브리핑"
-        stage == Stage.S1 -> "화면 주의 색상 전환 + 환기 제안 및 끝말잇기 각성 퀴즈"
-        else -> "위험 단계에 맞춰 화면·실내 무드등 색상과 경고음을 동기화합니다"
-    }
-
-    return listOf(
-        PleosStimulusSpec(
-            title = "공조 냉풍 · 외기 환기",
-            stateLabel = if (ventActive) "작동 · $airLabel" else airLabel,
-            detail = "$airLabel · $fanPart · $tempPart",
-            active = ventActive,
+/** 물리 자극 카드 3장: 차량 응답(쓰기 성공·읽은 값) 기준 상태를 카드 명세로 바꾼다. */
+private fun stimulusSpecs(s: UiState): List<PleosStimulusSpec> =
+    StimulusView.of(
+        StimulusView.Input(
+            capsKnown = s.hvac.capsKnown,
+            unavailable = s.hvac.error != null,
+            caps = s.hvac.caps,
+            now = s.hvac.now,
+            last = s.wake.lastHvac,
+            alertStage = s.wake.alert?.takeIf { !it.practice }?.stage,
+            autoControl = s.p.settings.hvacControl,
+            beep = s.p.settings.beep,
         ),
-        PleosStimulusSpec(
-            title = "운전석 시트 통풍 각성",
-            stateLabel = seatState,
-            detail = seatDetail,
-            active = seatActive,
-        ),
-        PleosStimulusSpec(
-            title = "앰비언트 조명 · 경고음",
-            stateLabel = lightSoundState,
-            detail = lightSoundDetail,
-            active = lightSoundActive,
-        ),
-    )
-}
+    ).map { PleosStimulusSpec(it.title, it.label, it.detail, it.active) }
 
 @Composable
 fun WakeMateApp(c: AppController) {
@@ -188,7 +134,6 @@ private fun DrivingView(c: AppController, s: UiState) {
         PleosStageHeroBanner(
             score = r?.score,
             stageLevel = stage.n,
-            bannerTag = "주행 중 졸음 감시 · 단계별 색상 반전",
             scoreContent = { fg ->
                 Text(r?.score?.toString() ?: "–", style = PleosTheme.typography.headlineLarge, color = fg, modifier = Modifier.testTag("risk_score"))
             },
@@ -205,7 +150,7 @@ private fun DrivingView(c: AppController, s: UiState) {
                 Text(RestAdvice.next(s.drivingMin, stage), style = PleosTheme.typography.bodyMedium, color = fgSecondary)
             }
         }
-        PleosStimulusStrip(items = buildStimulusSpecs(s), stageLevel = stage.n)
+        PleosStimulusStrip(items = stimulusSpecs(s), stageLevel = stage.n, showDetail = false)
     }
 }
 
@@ -269,7 +214,7 @@ private fun AlertCard(c: AppController, a: Alert) {
 private fun StatusPage(c: AppController, s: UiState) {
     val r: RiskResult? = s.risk
     val stage = activeStageOf(s)
-    PleosStimulusStrip(items = buildStimulusSpecs(s), stageLevel = stage.n)
+    PleosStimulusStrip(items = stimulusSpecs(s), stageLevel = stage.n)
     PleosPanel(Modifier.fillMaxWidth(), title = "위험지수 구성") {
         if (r == null) Txt("계산 중…", secondary = true)
         else r.factors.forEach { f ->
