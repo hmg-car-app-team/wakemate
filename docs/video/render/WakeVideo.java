@@ -2,7 +2,8 @@
  * 깨워드림 합성 시연 영상 렌더러(JDK 17 단일 파일 실행 + ffmpeg).
  * 앱 화면은 Automotive 에뮬레이터에서 '깨워드림 시연'을 녹화한 것(adb shell screenrecord --size 1920x1080 --time-limit 180)이고,
  * 실내 장면(무드등·화면 둘레 빛·핸들 열선·찬바람)은 녹화 시각에 맞춘 합성 연출이다. 앱의 음성 안내 문구는 AI 음성 합성
- * (Higgsfield 의 Inworld Text to Speech, 한국어 음성 Yoona)으로 만들어 위쪽 자막과 같은 시각에 넣고, 경고음은 앱의 경고음 패턴을 재현한다.
+ * (Higgsfield 의 Inworld Text to Speech, 한국어 음성 Minji)으로 만들어 위쪽 자막과 같은 시각에 넣고, 경고음은 앱의 경고음 패턴을 재현한다.
+ * 2단계 물리 자극은 음성으로 '졸음 방지 모드를 시작했어요' 한 번만 알리고, 어떤 장치가 켜졌는지는 아래 상태 줄(졸음 방지 모드 켜짐 + 장치 체크)로 보여 준다.
  *
  * 실행: java -Xmx6g WakeVideo.java <녹화.mp4> <실내 사진(화면 정면)> <핸들 열선 꺼짐 사진> <핸들 열선 켜짐 사진> <출력.mp4> edl.txt voice.txt
  *  - edl.txt  : 장면 목록(종류 시작 끝 줌시작 줌끝 줌중심x 줌중심y, 시각은 녹화 기준 초)
@@ -314,7 +315,7 @@ public class WakeVideo {
         if (st == 0) return "차량 신호로 졸음 위험을 살피는 중";
         if (st == 1) return "음성으로 휴식을 권하고 외기 전환을 제안해요";
         if (st == 2 && stimAt(ts) < 0.5) return "화면 가장자리 빛과 카드로 먼저 알려요";
-        if (st == 2) return cut ? "핸들은 따뜻하게, 바람은 차갑게 몸을 깨워요" : "실내 장치가 직접 깨워요";
+        if (st == 2) return cut ? "핸들은 따뜻하게, 바람은 차갑게 몸을 깨워요" : "졸음 방지 모드로 실내 장치가 깨워요";
         return "가장 가까운 휴게소를 안내하고 정차를 권해요";
     }
 
@@ -328,17 +329,40 @@ public class WakeVideo {
         g.setFont(bold(32f)); FontMetrics fm = g.getFontMetrics(); String nm = NAMES[st]; int pw = fm.stringWidth(nm) + 60;
         RoundRectangle2D pill = new RoundRectangle2D.Double(68, 974, pw, 56, 56, 56);
         g.setColor(tc); g.fill(pill); g.setColor(INK); g.drawString(nm, 68 + 30, 974 + 28 + fm.getAscent() * 0.36f);
-        g.setFont(med(32f)); FontMetrics fc = g.getFontMetrics(); g.setColor(new Color(240, 242, 245)); g.drawString(caption(ts, cut), 68 + pw + 28, 974 + 28 + fc.getAscent() * 0.36f);
         int tw = 196, gap = 10, tx = W - 64 - (tw * 4 + gap * 3);
+        double bx = tx - 176; // 졸음 방지 모드 상태 칸의 왼쪽 경계
+        String cap = caption(ts, cut); float capSize = 32f;
+        while (capSize > 24f) { g.setFont(med(capSize)); if (68 + pw + 28 + g.getFontMetrics().stringWidth(cap) <= bx - 18) break; capSize -= 1f; }
+        FontMetrics fc = g.getFontMetrics(); g.setColor(new Color(240, 242, 245)); g.drawString(cap, 68 + pw + 28, 974 + 28 + fc.getAscent() * 0.36f);
+        Color acc = st >= 3 ? C_DANGER : C_WARN;
+        // 졸음 방지 모드 상태: 차량이 작동을 확인한 순간(T_STIM) '대기'에서 '켜짐'으로 바뀐다(음성 대신 화면이 무엇이 켜졌는지 알려 준다)
+        double on = smooth((ts - T_STIM) / 0.35);
+        g.setColor(new Color(255, 255, 255, 34)); g.setStroke(new BasicStroke(1.5f)); g.draw(new Line2D.Double(bx, 970, bx, 1034));
+        g.setFont(med(21f)); g.setColor(new Color(200, 204, 212)); g.drawString("졸음 방지 모드", (float) (bx + 18), 994f);
+        boolean isOn = on >= 0.5;
+        g.setColor(isOn ? acc : new Color(120, 124, 132)); g.fill(new Ellipse2D.Double(bx + 18, 1009, 14, 14));
+        double pop = on > 0 && on < 1 ? 1 + 0.2 * Math.sin(Math.PI * on) : 1;
+        Graphics2D sg = (Graphics2D) g.create(); sg.translate(bx + 40, 1026); sg.scale(pop, pop);
+        sg.setFont(bold(28f)); sg.setColor(isOn ? Color.WHITE : new Color(160, 164, 172)); sg.drawString(isOn ? "켜짐" : "대기", 0f, 0f); sg.dispose();
         for (int i = 0; i < 4; i++) {
-            double k = smooth((ts - T_STIM - 0.15 * i) / 0.5);
+            double ti = T_STIM + 0.25 * i, k = smooth((ts - ti) / 0.45);
             double x = tx + i * (tw + gap), y = 964; RoundRectangle2D tile = new RoundRectangle2D.Double(x, y, tw, 76, 22, 22);
-            Color acc = st >= 3 ? C_DANGER : C_WARN;
             g.setColor(mix(new Color(26, 28, 33), mix(new Color(26, 28, 33), acc, 0.30), k)); g.fill(tile);
             g.setColor(alpha(mix(new Color(90, 94, 102), acc, k), 0.55 + 0.45 * k)); g.setStroke(new BasicStroke(2f)); g.draw(tile);
+            // 켜지는 순간 한 번만 테두리가 밝게 번진다
+            double flash = ts >= ti ? 1 - smooth((ts - ti) / 0.9) : 0;
+            if (flash > 0.01) { g.setColor(alpha(acc, 0.85 * flash)); g.setStroke(new BasicStroke((float) (2 + 5 * flash))); g.draw(new RoundRectangle2D.Double(x - 3 * flash, y - 3 * flash, tw + 6 * flash, 76 + 6 * flash, 26, 26)); }
             icon(g, i, x + 16, y + 21, 34, k > 0.5 ? mix(Color.WHITE, acc, 0.35) : alpha(Color.WHITE, 0.45 + 0.55 * k));
             g.setFont(med(21f)); g.setColor(alpha(new Color(200, 204, 212), 0.6 + 0.4 * k)); g.drawString(TILE[i], (float) (x + 62), (float) (y + 31));
             g.setFont(bold(26f)); g.setColor(alpha(Color.WHITE, 0.5 + 0.5 * k)); g.drawString(k > 0.5 ? ONV[i] : OFFV[i], (float) (x + 62), (float) (y + 62));
+            // 켜짐 체크
+            double ck = smooth((ts - ti - 0.1) / 0.3);
+            if (ck > 0.01) {
+                double cx = x + tw - 21, cy = y + 21, rr = 11 * (0.6 + 0.4 * ck);
+                g.setColor(alpha(acc, ck)); g.fill(new Ellipse2D.Double(cx - rr, cy - rr, rr * 2, rr * 2));
+                g.setColor(alpha(INK, ck)); g.setStroke(new BasicStroke(2.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                Path2D chk = new Path2D.Double(); chk.moveTo(cx - 5, cy); chk.lineTo(cx - 1.5, cy + 4); chk.lineTo(cx + 5.5, cy - 4.5); g.draw(chk);
+            }
         }
     }
 
@@ -436,11 +460,13 @@ public class WakeVideo {
         backdrop(g, C_WARN, out);
         Composite old = g.getComposite(); g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) clamp01(out)));
         centered(g, "단계마다 다르게 깨웁니다", bold(76f), Color.WHITE, 390);
-        String[][] rows = {{"주의", "음성 안내 · 외기 전환 제안"}, {"경고", "공조 · 시트 통풍 · 핸들 열선 · 무드등"}, {"위험", "가까운 졸음쉼터 · 휴게소 안내"}};
+        String[][] rows = {{"주의", "음성 안내 · 외기 전환 제안"}, {"경고", "졸음 방지 모드: 공조 · 시트 통풍 · 핸들 열선 · 무드등"}, {"위험", "가까운 졸음쉼터 · 휴게소 안내"}};
         Color[] cs = {C_CAUTION, C_WARN, C_DANGER};
+        g.setFont(med(38f)); double maxW = 0; for (String[] r : rows) maxW = Math.max(maxW, g.getFontMetrics().stringWidth(r[1]));
+        double px = (W - (150 + maxW)) / 2.0;
         for (int i = 0; i < 3; i++) {
             double y = 500 + i * 92; g.setFont(bold(34f)); FontMetrics fm = g.getFontMetrics();
-            double px = 560; RoundRectangle2D pill = new RoundRectangle2D.Double(px, y - 40, 120, 58, 58, 58);
+            RoundRectangle2D pill = new RoundRectangle2D.Double(px, y - 40, 120, 58, 58, 58);
             g.setColor(cs[i]); g.fill(pill); g.setColor(INK); g.drawString(rows[i][0], (float) (px + (120 - fm.stringWidth(rows[i][0])) / 2.0), (float) (y + 1));
             g.setFont(med(38f)); g.setColor(new Color(235, 237, 241)); g.drawString(rows[i][1], (float) (px + 150), (float) (y + 2));
         }

@@ -102,8 +102,17 @@ object HvacErrors {
     }
 }
 
-/** 쓰기 결과를 사용자에게 정직하게 알리는 문구(결과를 받은 뒤에만 사용). */
+/**
+ * 쓰기 결과를 사용자에게 정직하게 알리는 문구(결과를 받은 뒤에만 사용).
+ * 2단계 물리 자극 묶음은 장치를 하나씩 읽지 않고 '졸음 방지 모드'로 한 번에 알린다(작동한 장치는 화면 카드의 칩이 보여 준다).
+ * 바꾸지 못한 장치만 이유와 함께 말한다(성공한 척 금지).
+ */
 object HvacReport {
+    const val MODE_ON = "졸음 방지 모드를 시작했어요"
+    const val MODE_FAILED = "졸음 방지 모드를 켜지 못했어요"
+    const val MODE_ALREADY = "졸음 방지 모드가 이미 켜져 있어요"
+    const val REST_TIP = "가까운 쉼터에서 잠깐 쉬어 가세요"
+
     private fun okPhrase(k: String) = when (k) {
         "recirc" -> "외기 순환으로 바꿨어요"
         "fan" -> "바람 세기를 올렸어요"
@@ -128,14 +137,17 @@ object HvacReport {
     fun summary(results: List<ItemResult>, planned: HvacTargets, connected: Boolean, ventOnly: Boolean = false): String {
         if (!connected && ventOnly) return "공조에 연결하지 못했거나 이 차량에서는 앱이 외기 전환을 할 수 없어요. 창문을 열어 환기해 주세요"
         if (!connected) return "공조에 연결하지 못했거나 이 차량에서는 앱이 바꿀 수 없어요. 창문을 열어 환기해 주세요"
-        if (planned.isEmpty && results.isEmpty()) return "공조는 이미 환기에 알맞은 상태예요"
-        if (results.isEmpty()) return "공조 응답을 받지 못했어요. 창문을 열어 환기해 주세요"
+        if (planned.isEmpty && results.isEmpty()) return if (ventOnly) "공조는 이미 환기에 알맞은 상태예요" else "$MODE_ALREADY. $REST_TIP"
+        if (results.isEmpty()) return "차량 응답을 받지 못했어요. 창문을 열어 환기해 주세요"
         val ok = results.filter { it.ok }
-        val bad = results.filter { !it.ok }
-        val parts = ArrayList<String>()
-        if (ok.isNotEmpty()) parts += ok.joinToString(", ") { okPhrase(it.kind) }
-        bad.forEach { parts += "${topic(it.kind)} ${reasonFor(it.kind, it.code)}" }
-        return parts.joinToString(". ")
+        val failures = results.filter { !it.ok }.map { "${topic(it.kind)} ${reasonFor(it.kind, it.code)}" }
+        // 1단계 외기 전환 제안: 바뀐 항목이 하나라 그대로 말한다
+        if (ventOnly) return (listOfNotNull(ok.takeIf { it.isNotEmpty() }?.joinToString(", ") { okPhrase(it.kind) }) + failures).joinToString(". ")
+        return when {
+            failures.isEmpty() -> "$MODE_ON. $REST_TIP"
+            ok.isEmpty() -> (listOf(MODE_FAILED) + failures).joinToString(". ")
+            else -> "$MODE_ON. 다만 ${failures.joinToString(", ")}"
+        }
     }
 
     /** 시트·조명·핸들 열선은 공조가 아니므로 주행 제한 문구를 따로 쓴다. */

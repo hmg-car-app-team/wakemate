@@ -168,7 +168,7 @@ class WakeRunnerTest {
         advanceTimeBy(600)  // 공조 응답은 왔지만 안내 문구가 아직 끝나지 않았다 -> 결과는 아직 말하지 않는다
         assertEquals(1, r.speaker.spoken.size)
         advanceTimeBy(1_000)
-        assertEquals("외기 순환으로 바꿨어요, 설정 온도를 낮췄어요. 바람 세기는 공조가 꺼져 있어 바꿀 수 없어요", r.speaker.spoken[1])
+        assertEquals("졸음 방지 모드를 시작했어요. 다만 바람 세기는 공조가 꺼져 있어 바꿀 수 없어요", r.speaker.spoken[1])
         advanceTimeBy(1_100)
         assertTrue(r.alert!!.finished); assertEquals(Status.PARTIAL, r.alert!!.status)
     }
@@ -184,7 +184,7 @@ class WakeRunnerTest {
         r.dispatch(WakeEvent.RiskUpdated(testScheduler.currentTime, 65, Stage.S2))
         advanceTimeBy(3_000)
         assertEquals(HvacTargets(false, 4, 22.0f, 3, HvacPlan.ALERT_AMBIENT_ARGB), hv.applied)
-        assertTrue(r.speaker.spoken[1], r.speaker.spoken[1].contains("시트 통풍을 켰어요") && r.speaker.spoken[1].contains("실내 조명을 경고색으로 바꿨어요"))
+        assertEquals("졸음 방지 모드를 시작했어요. 가까운 쉼터에서 잠깐 쉬어 가세요", r.speaker.spoken[1])
         assertEquals(HvacTargets(seatVent = 0, ambientColor = blue), r.ui.wake.restoreStimulus)
         r.dispatch(WakeEvent.Rested)
         assertEquals("휴식 후 원래 값으로 되돌린다", HvacTargets(seatVent = 0, ambientColor = blue), hv.applied)
@@ -217,7 +217,7 @@ class WakeRunnerTest {
         advanceTimeBy(1_100)       // 안내 문구 끝
         assertEquals(1, r.speaker.spoken.size)
         advanceTimeBy(9_000)       // 9초 대기 만료
-        assertEquals("공조 응답을 받지 못했어요. 창문을 열어 환기해 주세요", r.speaker.spoken[1])
+        assertEquals("차량 응답을 받지 못했어요. 창문을 열어 환기해 주세요", r.speaker.spoken[1])
     }
 
     @Test fun stage2_lateSuccessWithin8s_isReportedAsSuccess() = runTest {
@@ -225,7 +225,7 @@ class WakeRunnerTest {
         val r = rig(hvac = hv)
         r.dispatch(WakeEvent.RiskUpdated(testScheduler.currentTime, 65, Stage.S2))
         advanceTimeBy(12_000)
-        assertEquals("외기 순환으로 바꿨어요", r.speaker.spoken[1])
+        assertEquals("졸음 방지 모드를 시작했어요. 가까운 쉼터에서 잠깐 쉬어 가세요", r.speaker.spoken[1])
     }
 
     @Test fun stage2_hvacApplyThrows_releasesInFlight_andNextAlertWorks() = runTest {
@@ -253,7 +253,7 @@ class WakeRunnerTest {
         r.dispatch(WakeEvent.RiskUpdated(testScheduler.currentTime, 65, Stage.S2))
         advanceTimeBy(3_000)
         assertEquals(0, hv.applyCalls)
-        assertEquals("공조는 이미 환기에 알맞은 상태예요", r.speaker.spoken[1])
+        assertEquals("졸음 방지 모드가 이미 켜져 있어요. 가까운 쉼터에서 잠깐 쉬어 가세요", r.speaker.spoken[1])
     }
 
     @Test fun beepSettingOff_noBeep() = runTest {

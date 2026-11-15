@@ -157,23 +157,34 @@ object WakeText {
 
     const val VENT_ASK = "졸음 위험이 올라가고 있어요. 공기를 외기로 바꿔드릴까요?"
 
+    /** 2단계 안내. 공조 제어를 쓰면 차량 결과를 받은 뒤 [HvacReport.summary] 가 '졸음 방지 모드를 시작했어요'로 이어 말한다. */
     fun s2(score: Int, hvac: Boolean) =
-        "졸음 위험지수 ${score}점으로 높아요. " + if (hvac) "외기 순환과 바람 세기를 조절해 볼게요." else "창문을 열어 환기하고 가까운 쉼터에서 쉬어 가세요."
+        "졸음 위험지수 ${score}점으로 높아요. " + if (hvac) "잠을 깨워 드릴게요." else "창문을 열어 환기하고 가까운 쉼터에서 쉬어 가세요."
 
     /** 0.05km(50m) 미만이면 '바로 근처예요', 그 외 '약 N킬로미터예요'(소수 한 자리). */
     fun distanceSpeech(km: Double): String = if (km < 0.05) "바로 근처예요" else "약 ${"%.1f".format(km)}킬로미터예요"
 
+    /**
+     * 3단계 안내. 쉼표로 끊어 읽지 않게 한 문장으로 잇는다.
+     * 예: '가장 가까운 휴게소인 강릉 인천 방면 상행까지 약 3.0킬로미터예요.'
+     */
     fun s3(score: Int, near: NearShelter?, sample: Boolean, plan: RoutePlan?, voiceReply: Boolean, locationKnown: Boolean = true, headingApplied: Boolean = false): String {
-        if (!locationKnown) return "졸음 위험지수 ${score}점으로 매우 높아요. 현재 위치를 확인하지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
-        if (near == null) return "졸음 위험지수 ${score}점으로 매우 높아요. 근처 졸음쉼터 정보를 찾지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
-        val dist = distanceSpeech(near.distanceKm)
-        val head = if (sample) "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 ${near.shelter.kindLabel}, ${near.shelter.name}, $dist."
-        else {
-            val dir = near.shelter.directionLabel.let { if (it.isEmpty()) "" else ", $it" }
-            "졸음 위험지수 ${score}점으로 매우 높아요. 가까운 ${near.shelter.kindLabel}, ${near.shelter.spokenName}$dir, $dist." +
-                (if (headingApplied) " 진행 방향 앞쪽 시설 기준이에요. 도로 방향은 직접 확인하세요." else "")
-        }
+        val lead = "졸음 위험지수 ${score}점으로 매우 높아요."
+        if (!locationKnown) return "$lead 현재 위치를 확인하지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
+        if (near == null) return "$lead 근처 졸음쉼터 정보를 찾지 못했어요. 가까운 휴게소나 안전한 곳에서 쉬어 가세요."
+        val where = if (sample) near.shelter.name
+        else listOf(near.shelter.spokenName, near.shelter.directionLabel).filter { it.isNotEmpty() }.joinToString(" ")
+        val place = "가장 가까운 ${near.shelter.kindLabel}인 $where"
+        val dist = if (near.distanceKm < 0.05) "$place${subjectJosa(where)} 바로 근처에 있어요." else "${place}까지 ${distanceSpeech(near.distanceKm)}."
+        val head = "$lead $dist" + if (!sample && headingApplied) " 진행 방향 앞쪽 시설 기준이에요. 도로 방향은 직접 확인하세요." else ""
         return head + if (voiceReply && plan != null) " ${plan.ask}" else " 안전한 곳에서 쉬어 가세요."
+    }
+
+    /** 주격 조사(이/가). 마지막 글자가 한글이면 받침으로, 숫자면 읽는 소리로 고른다(영·일·삼·육·칠·팔은 받침이 있다). */
+    internal fun subjectJosa(word: String): String {
+        val c = word.trimEnd().lastOrNull() ?: return "가"
+        val batchim = if (c in '가'..'힣') (c - '가') % 28 != 0 else c in "013678"
+        return if (batchim) "이" else "가"
     }
 
     fun line(stage: Stage, score: Int) = "졸음 ${stage.label} · 위험지수 $score"
@@ -357,7 +368,8 @@ object WakeFlow {
         if (a.finished) return s to NONE
         // 위험 단계: 쓰기 결과는 자극 카드 근거로만 남기고, 쉼터 안내 흐름(상태·음성)은 건드리지 않는다
         if (a.stage == Stage.S3) return s to NONE
-        val summary = HvacReport.summary(e.results, e.planned, e.connected, e.ventOnly)
+        // 1단계는 외기 전환만 하므로 '졸음 방지 모드' 대신 바뀐 항목을 그대로 말한다
+        val summary = HvacReport.summary(e.results, e.planned, e.connected, e.ventOnly || a.stage == Stage.S1)
         val fin = when {
             !e.connected -> Status.FAILED
             e.results.isEmpty() && !e.planned.isEmpty -> Status.FAILED

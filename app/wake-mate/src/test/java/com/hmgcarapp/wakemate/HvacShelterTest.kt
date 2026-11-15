@@ -79,17 +79,17 @@ class HvacShelterTest {
         assertTrue("이미 최대면 쓰지 않는다", HvacPlan.plan(HvacNow(wheelHeat = 3), wheelCaps).isEmpty)
         assertTrue("미지원이면 쓰지 않는다", HvacPlan.plan(HvacNow(wheelHeat = 0), HvacCaps()).isEmpty)
         assertTrue(HvacPlan.usable(true, wheelCaps, ventOnly = false))
-        assertEquals("핸들 열선을 켰어요", HvacReport.summary(listOf(ItemResult("wheel", true, null)), HvacTargets(wheelHeat = 3), true))
-        assertEquals("핸들 열선은 주행 중에는 차량 정책상 앱이 바꿀 수 없어요",
+        assertEquals("졸음 방지 모드를 시작했어요. 가까운 쉼터에서 잠깐 쉬어 가세요", HvacReport.summary(listOf(ItemResult("wheel", true, null)), HvacTargets(wheelHeat = 3), true))
+        assertEquals("졸음 방지 모드를 켜지 못했어요. 핸들 열선은 주행 중에는 차량 정책상 앱이 바꿀 수 없어요",
             HvacReport.summary(listOf(ItemResult("wheel", false, HvacErrors.DRIVING_RESTRICTED)), HvacTargets(wheelHeat = 3), true))
     }
 
-    @Test fun report_namesSeatAndAmbientResultsHonestly() {
+    @Test fun report_stage2_saysModeOnce_andNamesOnlyFailedDevices() {
         val planned = HvacTargets(seatVent = 3, ambientColor = HvacPlan.ALERT_AMBIENT_ARGB)
-        assertEquals("시트 통풍을 켰어요, 실내 조명을 경고색으로 바꿨어요",
+        assertEquals("졸음 방지 모드를 시작했어요. 가까운 쉼터에서 잠깐 쉬어 가세요",
             HvacReport.summary(listOf(ItemResult("seat", true, null), ItemResult("ambient", true, null)), planned, true))
         val partial = HvacReport.summary(listOf(ItemResult("seat", true, null), ItemResult("ambient", false, HvacErrors.DRIVING_RESTRICTED)), planned, true)
-        assertEquals("시트 통풍을 켰어요. 실내 조명은 주행 중에는 차량 정책상 앱이 바꿀 수 없어요", partial)
+        assertEquals("졸음 방지 모드를 시작했어요. 다만 실내 조명은 주행 중에는 차량 정책상 앱이 바꿀 수 없어요", partial)
     }
 
     @Test fun plan_fanTargetWithinCapabilityBounds() {
@@ -135,23 +135,26 @@ class HvacShelterTest {
     @Test fun report_honestAboutFailuresAndNeverClaimsUnconfirmedChanges() {
         val planned = HvacTargets(false, 4, 22f)
         assertEquals(
-            "외기 순환으로 바꿨어요. 바람 세기는 공조가 꺼져 있어 바꿀 수 없어요",
+            "졸음 방지 모드를 시작했어요. 다만 바람 세기는 공조가 꺼져 있어 바꿀 수 없어요",
             HvacReport.summary(listOf(ItemResult("recirc", true, null), ItemResult("fan", false, 2)), planned, connected = true),
         )
         assertEquals(
-            "바람 세기는 차량 응답이 늦었어요",
+            "졸음 방지 모드를 켜지 못했어요. 바람 세기는 차량 응답이 늦었어요",
             HvacReport.summary(listOf(ItemResult("fan", false, 4)), HvacTargets(null, 4, null), true),
         )
-        // 응답을 받지 못했으면 '바꿨어요'라고 말하지 않는다
+        // 응답을 받지 못했으면 '시작했어요'라고 말하지 않는다
         val noAnswer = HvacReport.summary(emptyList(), planned, connected = true)
-        assertEquals("공조 응답을 받지 못했어요. 창문을 열어 환기해 주세요", noAnswer)
-        assertEquals("공조는 이미 환기에 알맞은 상태예요", HvacReport.summary(emptyList(), HvacTargets(), true))
+        assertEquals("차량 응답을 받지 못했어요. 창문을 열어 환기해 주세요", noAnswer)
+        assertEquals("졸음 방지 모드가 이미 켜져 있어요. 가까운 쉼터에서 잠깐 쉬어 가세요", HvacReport.summary(emptyList(), HvacTargets(), true))
+        // 1단계 외기 전환 제안은 바뀐 항목을 그대로 말한다
+        assertEquals("공조는 이미 환기에 알맞은 상태예요", HvacReport.summary(emptyList(), HvacTargets(), true, ventOnly = true))
+        assertEquals("외기 순환으로 바꿨어요", HvacReport.summary(listOf(ItemResult("recirc", true, null)), HvacTargets(recirc = false), true, ventOnly = true))
         assertTrue(HvacReport.summary(emptyList(), planned, connected = false).contains("연결하지 못했거나"))
     }
 
-    @Test fun report_allSuccessListsEachChange() {
+    @Test fun report_stage2AllSuccess_saysModeOnceWithoutListingDevices() {
         val r = HvacReport.summary(listOf(ItemResult("recirc", true, null), ItemResult("fan", true, null), ItemResult("temp", true, null)), HvacTargets(false, 4, 22f), true)
-        assertEquals("외기 순환으로 바꿨어요, 바람 세기를 올렸어요, 설정 온도를 낮췄어요", r)
+        assertEquals("졸음 방지 모드를 시작했어요. 가까운 쉼터에서 잠깐 쉬어 가세요", r)
         assertTrue(HvacReport.hasFailure(listOf(ItemResult("fan", false, 2))))
     }
 
@@ -249,7 +252,7 @@ class HvacShelterTest {
         val r = listOf(ItemResult("recirc", false, HvacErrors.DRIVING_RESTRICTED), ItemResult("fan", true, null))
         val text = HvacReport.summary(r, planned, connected = true)
         assertTrue(text.contains("주행 중") && text.contains("외기 순환은"))
-        assertTrue(text.contains("바람 세기를 올렸어요"))
+        assertTrue(text, text.startsWith(HvacReport.MODE_ON))
         assertTrue(HvacReport.hasFailure(r))
         assertEquals("알 수 없는 오류예요", HvacErrors.reason(null))
     }
@@ -314,17 +317,20 @@ class RealShelterDataTest {
         assertEquals("강릉 인천 방면", inch.spokenName); assertEquals("강릉(인천)", inch.name)
         assertEquals("고삼호수", rests.shelters.first { it.name == "고삼호수" }.spokenName)
         val t = com.hmgcarapp.wakemate.domain.WakeText.s3(85, com.hmgcarapp.wakemate.domain.NearShelter(inch, 3.0), false, null, false)
-        assertTrue(t, t.contains("강릉 인천 방면, 상행, 약 3.0킬로미터예요"))
+        assertTrue(t, t.contains("가장 가까운 휴게소인 강릉 인천 방면 상행까지 약 3.0킬로미터예요."))
+        val near = com.hmgcarapp.wakemate.domain.WakeText.s3(85, com.hmgcarapp.wakemate.domain.NearShelter(inch, 0.01), false, null, false)
+        assertTrue(near, near.contains("가장 가까운 휴게소인 강릉 인천 방면 상행이 바로 근처에 있어요."))
         val both = rests.shelters.first { it.direction == "양방향" }
-        assertTrue(com.hmgcarapp.wakemate.domain.WakeText.s3(85, com.hmgcarapp.wakemate.domain.NearShelter(both, 1.0), false, null, false).contains(", 양방향, 약"))
+        assertTrue(com.hmgcarapp.wakemate.domain.WakeText.s3(85, com.hmgcarapp.wakemate.domain.NearShelter(both, 1.0), false, null, false).contains(" 양방향까지 약"))
         val none = rests.shelters.first { it.direction.isEmpty() }
-        assertTrue(!com.hmgcarapp.wakemate.domain.WakeText.s3(85, com.hmgcarapp.wakemate.domain.NearShelter(none, 1.0), false, null, false).contains(", ,"))
+        val noneText = com.hmgcarapp.wakemate.domain.WakeText.s3(85, com.hmgcarapp.wakemate.domain.NearShelter(none, 1.0), false, null, false)
+        assertTrue(noneText, !noneText.contains(", ,") && !noneText.contains("  ") && !noneText.contains(" 까지"))
     }
 
     @Test fun voice_realData_saysSnapshotNotRealtime_andKind() {
         val n = com.hmgcarapp.wakemate.domain.NearShelter(rests.shelters[0], 2.0)
         val t = com.hmgcarapp.wakemate.domain.WakeText.s3(85, n, false, null, false)
-        assertTrue(t, t.contains("가까운 휴게소, 강릉 강릉 방면, 하행, 약 2.0킬로미터예요.") && !t.contains("반영하지 않으니") && !t.contains("공공데이터 스냅샷") && !t.contains("실시간 정보") && !t.contains("시연용") && !t.contains("샘플"))
+        assertTrue(t, t.contains("가장 가까운 휴게소인 강릉 강릉 방면 하행까지 약 2.0킬로미터예요.") && !t.contains("반영하지 않으니") && !t.contains("공공데이터 스냅샷") && !t.contains("실시간 정보") && !t.contains("시연용") && !t.contains("샘플"))
     }
 
     @Test fun voice_headingApplied_saysAheadBasis_notIgnored() {

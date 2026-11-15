@@ -292,7 +292,7 @@ class WakeFlowTest {
             assertEquals(WakeEffect.RecordQuiz(outcome, ms), fx[0]); assertEquals(Status.QUIZ_FAILED, h.alert!!.status)
             assertNull("실패해도 휴지는 없다", h.s.snoozeUntilMs)
             val up = h.send(WakeEvent.ResultSpoken(1))
-            assertEquals(listOf(WakeEffect.ScheduleExpiry(1, 25_000)) + commonFx + listOf(WakeEffect.Beep(2, Stage.S2), WakeEffect.Speak(2, "졸음 위험지수 45점으로 높아요. 외기 순환과 바람 세기를 조절해 볼게요."), WakeEffect.ApplyHvac(2)), up)
+            assertEquals(listOf(WakeEffect.ScheduleExpiry(1, 25_000)) + commonFx + listOf(WakeEffect.Beep(2, Stage.S2), WakeEffect.Speak(2, "졸음 위험지수 45점으로 높아요. 잠을 깨워 드릴게요."), WakeEffect.ApplyHvac(2)), up)
             assertEquals(Stage.S2, h.alert!!.stage); assertEquals(Stage.S2, h.s.episode)
         }
     }
@@ -319,12 +319,12 @@ class WakeFlowTest {
     // ---------------- 2단계: 경고음 + 공조 ----------------
     private val planned = HvacTargets(false, 4, 22f)
     private val partial = listOf(ItemResult("recirc", true, null), ItemResult("fan", false, 2))
-    private val partialText = "외기 순환으로 바꿨어요. 바람 세기는 공조가 꺼져 있어 바꿀 수 없어요"
+    private val partialText = "졸음 방지 모드를 시작했어요. 다만 바람 세기는 공조가 꺼져 있어 바꿀 수 없어요"
 
     @Test fun stage2_effectsOrder_andSpeechThenHvacResult() {
         val h = H()
         val fx = h.send(WakeEvent.RiskUpdated(0, 65, Stage.S2))
-        assertEquals(commonFx + listOf(WakeEffect.Beep(1, Stage.S2), WakeEffect.Speak(1, "졸음 위험지수 65점으로 높아요. 외기 순환과 바람 세기를 조절해 볼게요."), WakeEffect.ApplyHvac(1)), fx)
+        assertEquals(commonFx + listOf(WakeEffect.Beep(1, Stage.S2), WakeEffect.Speak(1, "졸음 위험지수 65점으로 높아요. 잠을 깨워 드릴게요."), WakeEffect.ApplyHvac(1)), fx)
         assertTrue(h.send(WakeEvent.VoiceSpoken(1, true)).isEmpty()); assertEquals(Status.WORKING, h.alert!!.status)
         val r = h.send(WakeEvent.HvacApplied(1, partial, planned, true))
         assertEquals(listOf(WakeEffect.SpeakResult(1, partialText)), r)
@@ -390,7 +390,7 @@ class WakeFlowTest {
         assertEquals(commonFx + listOf(WakeEffect.Beep(1, Stage.S3), WakeEffect.PlanShelter(1), WakeEffect.ApplyHvac(1)), fx0)
         val fx1 = h.send(WakeEvent.ShelterPlanned(1, near, RoutePlans.decide(RouteMode.NONE), true))
         assertEquals(
-            listOf(WakeEffect.Speak(1, "졸음 위험지수 85점으로 매우 높아요. 가까운 졸음쉼터, 가상 샘플 쉼터 1, 약 1.2킬로미터예요. 안내를 시작할까요?")),
+            listOf(WakeEffect.Speak(1, "졸음 위험지수 85점으로 매우 높아요. 가장 가까운 졸음쉼터인 가상 샘플 쉼터 1까지 약 1.2킬로미터예요. 안내를 시작할까요?")),
             fx1,
         )
         assertEquals(listOf(WakeEffect.Listen(1, Purpose.CONFIRM)), h.send(WakeEvent.VoiceSpoken(1, true)))
