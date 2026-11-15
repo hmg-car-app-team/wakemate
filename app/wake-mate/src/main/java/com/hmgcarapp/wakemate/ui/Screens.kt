@@ -76,7 +76,7 @@ private fun Txt(t: String, style: TextStyle = PleosTheme.typography.bodyMedium, 
     Text(t, style = style, color = if (secondary) PleosTheme.colors.textDarkSecondary else PleosTheme.colors.textDarkPrimary, modifier = modifier)
 
 /** 현재 표시할 강조 단계: 진행 중인 깨우기가 있으면 그 단계와 현재 위험 단계 중 높은 쪽을 반영한다. */
-private fun activeStageOf(s: UiState): Stage {
+internal fun activeStageOf(s: UiState): Stage {
     val rStage = s.risk?.stage ?: Stage.NONE
     val aStage = s.wake.alert?.stage ?: Stage.NONE
     return if (aStage.n > rStage.n) aStage else rStage
@@ -154,6 +154,26 @@ private fun activeStimulusNames(specs: List<PleosStimulusSpec>): List<String> = 
     }
 }
 
+/** 떠 있는 경고 카드(주행 화면과 디버그용 Pleos 화면 미리보기가 함께 쓴다). 단계가 정상이면 숨는다. 읽기 전용. */
+@Composable
+internal fun WakeAlertCard(s: UiState, modifier: Modifier = Modifier) {
+    val r = s.risk
+    val stage = activeStageOf(s)
+    val a = s.wake.alert
+    PleosFloatingAlertCard(
+        visible = stage != Stage.NONE,
+        stageLevel = stage.n,
+        chipLabel = "졸음 ${stage.label}" + (r?.let { " · ${it.score}점" } ?: ""),
+        modifier = modifier,
+    ) {
+        Txt(cardHeadline(stage, a?.shelter), PleosTheme.typography.titleLarge.phrase())
+        a?.shelterLine?.let { Txt(it, PleosTheme.typography.bodyMedium, secondary = true, modifier = Modifier.testTag("banner_shelter")) }
+        if (a != null && !Status.isProgress(a.status)) Txt(a.status, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_status"))
+        val on = activeStimulusNames(stimulusSpecs(s))
+        if (on.isNotEmpty()) Txt(on.joinToString(" · ") + " 작동 중", PleosTheme.typography.labelMedium, secondary = true)
+    }
+}
+
 @Composable
 private fun DrivingView(c: AppController, s: UiState) {
     val r = s.risk
@@ -171,20 +191,7 @@ private fun DrivingView(c: AppController, s: UiState) {
             bottom = {
                 Txt("쉬지 않은 주행 ${s.drivingMin}분", PleosTheme.typography.titleSmall, modifier = Modifier.testTag("driving_idle"))
             },
-            overlay = {
-                PleosFloatingAlertCard(
-                    visible = stage != Stage.NONE,
-                    stageLevel = stage.n,
-                    chipLabel = "졸음 ${stage.label}" + (r?.let { " · ${it.score}점" } ?: ""),
-                    modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.88f),
-                ) {
-                    Txt(cardHeadline(stage, a?.shelter), PleosTheme.typography.titleLarge.phrase())
-                    a?.shelterLine?.let { Txt(it, PleosTheme.typography.bodyMedium, secondary = true, modifier = Modifier.testTag("banner_shelter")) }
-                    if (a != null && !Status.isProgress(a.status)) Txt(a.status, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_status"))
-                    val on = activeStimulusNames(specs)
-                    if (on.isNotEmpty()) Txt(on.joinToString(" · ") + " 작동 중", PleosTheme.typography.labelMedium, secondary = true)
-                }
-            },
+            overlay = { WakeAlertCard(s, Modifier.align(Alignment.Center).fillMaxWidth(0.88f)) },
         )
         // 오른쪽: 위험지수 게이지와 물리 자극 카드
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {

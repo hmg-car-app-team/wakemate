@@ -10,7 +10,9 @@
 - 검증: 단위 테스트 299건 통과(designsystem·core·wake-mate), debug APK 빌드 성공.
 - **미검증**: 실제 화면 렌더링(Pleos 에뮬레이터 없음), 시트·조명 SDK 실동작.
 
-## 진행 현황 (19:10 KST 갱신)
+## 진행 현황 (19:15 KST 갱신)
+
+- 시연용 Pleos 화면 미리보기(debug 빌드 전용): Pleos 홈 화면 이미지를 배경으로 깔고 앱의 실제 컴포넌트(가장자리 빛 + 반투명 경고 카드)를 왼쪽 주행 섹션 위에 얹는다. 카드·빛은 앱의 실제 상태를 따른다. 실행 `adb shell am start -n com.hmgcarapp.wakemate/.preview.PleosPreviewActivity` 후 SimReceiver로 시연 신호 주입. 캡처는 `docs/screens/pleos-home-*.png`. release APK에는 화면·배경 이미지가 들어가지 않는다
 
 - 주행 화면 구성 확정: 왼쪽 주행 섹션(차속·원근 차선·연속 주행) 위에 반투명 경고 카드(팝업 면 불투명도 80%), 오른쪽에 위험지수 게이지와 물리 자극 카드. 실제 앱 화면 캡처는 `docs/screens/` (Automotive 에뮬레이터 2560×1440, 시연 신호 주입). Pleos 실차에서는 왼쪽 시스템 주행 섹션이 따로 있고 앱은 오른쪽 앱 영역(1700dp)에서 이 구성으로 보인다
 

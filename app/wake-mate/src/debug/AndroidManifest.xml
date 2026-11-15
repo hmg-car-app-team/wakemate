@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- 시연 전용(debug 빌드만): Pleos 홈 화면 이미지를 배경으로 깔고 앱의 실제 경고 카드·가장자리 빛을 얹어 보여 준다 -->
+        <activity
+            android:name=".preview.PleosPreviewActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen">
+            <meta-data android:name="distractionOptimized" android:value="true" />
+        </activity>
+    </application>
+</manifest>
