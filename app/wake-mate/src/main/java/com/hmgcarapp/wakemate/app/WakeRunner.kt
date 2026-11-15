@@ -104,6 +104,9 @@ class WakeRunner(
             WakeEffect.ApplyNotSleepy -> onNotSleepy()
             is WakeEffect.RecordQuiz -> onQuiz(fx.outcome, fx.responseMs)
             is WakeEffect.Warn -> HmgLog.w("Wake", fx.text)
+            is WakeEffect.RestoreStimulus -> runCatching {
+                hvac.apply(fx.targets) { r -> r.filter { !it.ok }.takeIf { it.isNotEmpty() }?.let { bad -> HmgLog.w("Wake", "자극 복원 일부 실패: ${bad.map { it.kind }}") } }
+            }.onFailure { HmgLog.w("Wake", "자극 복원 실패: ${it.javaClass.simpleName}") }
         }
     }
 
@@ -121,7 +124,9 @@ class WakeRunner(
                 }
             } ?: emptyList()
         }
-        dispatch(WakeEvent.HvacApplied(id, results, targets, usable, base, ventOnly))
+        // 되돌리기용 원래 값: 시트 통풍을 읽지 못했으면 꺼짐(0)으로, 무드등 색을 읽지 못했으면 되돌리지 않는다
+        val original = HvacTargets(seatVent = targets.seatVent?.let { snap.now.seatVent ?: 0 }, ambientColor = targets.ambientColor?.let { snap.now.ambientColor })
+        dispatch(WakeEvent.HvacApplied(id, results, targets, usable, base, ventOnly, original))
     }
 
     /**

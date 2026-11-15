@@ -11,6 +11,7 @@ import com.hmgcarapp.wakemate.app.UiState
 import com.hmgcarapp.wakemate.app.WakeRunner
 import com.hmgcarapp.wakemate.domain.HvacCaps
 import com.hmgcarapp.wakemate.domain.HvacNow
+import com.hmgcarapp.wakemate.domain.HvacPlan
 import com.hmgcarapp.wakemate.domain.HvacTargets
 import com.hmgcarapp.wakemate.domain.ItemResult
 import com.hmgcarapp.wakemate.domain.LatLon
@@ -170,6 +171,24 @@ class WakeRunnerTest {
         assertEquals("외기 순환으로 바꿨어요, 설정 온도를 낮췄어요. 바람 세기는 공조가 꺼져 있어 바꿀 수 없어요", r.speaker.spoken[1])
         advanceTimeBy(1_100)
         assertTrue(r.alert!!.finished); assertEquals(Status.PARTIAL, r.alert!!.status)
+    }
+
+    @Test fun stage2_seatAndLight_rememberOriginal_andRestoreAfterRest() = runTest {
+        val blue = -16776961
+        val snap = goodSnap.copy(
+            caps = goodSnap.caps.copy(seatVent = true, seatVentMax = 3, ambientColor = true),
+            now = goodSnap.now.copy(seatVent = 0, ambientColor = blue),
+        )
+        val hv = FakeHvac(backgroundScope, snap, 300) { t -> t.kinds.map { ItemResult(it, true, null) } }
+        val r = rig(hvac = hv)
+        r.dispatch(WakeEvent.RiskUpdated(testScheduler.currentTime, 65, Stage.S2))
+        advanceTimeBy(3_000)
+        assertEquals(HvacTargets(false, 4, 22.0f, 3, HvacPlan.ALERT_AMBIENT_ARGB), hv.applied)
+        assertTrue(r.speaker.spoken[1], r.speaker.spoken[1].contains("시트 통풍을 켰어요") && r.speaker.spoken[1].contains("실내 조명을 경고색으로 바꿨어요"))
+        assertEquals(HvacTargets(seatVent = 0, ambientColor = blue), r.ui.wake.restoreStimulus)
+        r.dispatch(WakeEvent.Rested)
+        assertEquals("휴식 후 원래 값으로 되돌린다", HvacTargets(seatVent = 0, ambientColor = blue), hv.applied)
+        assertEquals(2, hv.applyCalls); assertNull(r.ui.wake.restoreStimulus)
     }
 
     @Test fun stage2_hvacNotConnected_doesNotWrite_andSaysSo() = runTest {
