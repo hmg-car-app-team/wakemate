@@ -1,12 +1,12 @@
 /*
  * 깨워드림 합성 시연 영상 렌더러(JDK 17 단일 파일 실행 + ffmpeg).
  * 앱 화면은 Automotive 에뮬레이터에서 '깨워드림 시연'을 녹화한 것(adb shell screenrecord --size 1920x1080 --time-limit 180)이고,
- * 실내 장면(무드등·화면 둘레 빛·핸들 열선·찬바람)은 녹화 시각에 맞춘 합성 연출이다. 음성은 앱 안내 문구를 macOS say(Yuna)로 재현했다.
+ * 실내 장면(무드등·화면 둘레 빛·핸들 열선·찬바람)은 녹화 시각에 맞춘 합성 연출이다. 앱의 음성 안내는 소리 대신 위쪽 자막으로 보여 주고, 소리는 경고음만 넣는다.
  *
  * 실행: java -Xmx6g WakeVideo.java <녹화.mp4> <실내 사진(화면 정면)> <핸들 열선 꺼짐 사진> <핸들 열선 켜짐 사진> <출력.mp4> edl.txt voice.txt
  *  - edl.txt  : 장면 목록(종류 시작 끝 줌시작 줌끝 줌중심x 줌중심y, 시각은 녹화 기준 초)
  *  - voice.txt: 음성·경고음(종류 녹화시각 길이 자막)
- * 소리 트랙은 voice.txt 의 시각을 출력 시각으로 바꿔 ffmpeg adelay/amix 로 따로 만든 뒤 합친다.
+ * 소리 트랙(경고음)은 voice.txt 의 경고음(B) 시각을 출력 시각으로 바꿔 ffmpeg adelay/amix 로 따로 만든 뒤 합친다.
  */
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -443,7 +443,7 @@ public class WakeVideo {
             g.setColor(cs[i]); g.fill(pill); g.setColor(INK); g.drawString(rows[i][0], (float) (px + (120 - fm.stringWidth(rows[i][0])) / 2.0), (float) (y + 1));
             g.setFont(med(38f)); g.setColor(new Color(235, 237, 241)); g.drawString(rows[i][1], (float) (px + 150), (float) (y + 2));
         }
-        centered(g, "앱 화면은 에뮬레이터 녹화 · 실내 장면은 합성 연출 · 음성은 앱 안내 문구 재현", med(26f), new Color(140, 146, 158), 930);
+        centered(g, "앱 화면은 에뮬레이터 녹화 · 실내 장면은 합성 연출 · 위쪽 자막은 앱의 음성 안내 문구", med(26f), new Color(140, 146, 158), 930);
         g.setComposite(old);
     }
 }
