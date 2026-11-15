@@ -126,6 +126,8 @@ class AppController(
             signals.speedKmh.catch { HmgLog.w("Speed", "flow 실패 $it") }.collect { r ->
                 lastSpeed = r.value
                 r.value?.let { v -> addSpeed(SpeedSample(monoClock(), v)) }
+                val shown = r.value?.takeIf { it.isFinite() }?.let { kotlin.math.round(it).toInt() }
+                if (_state.value.speedKmh != shown) _state.update { it.copy(speedKmh = shown) }
             }
         }
         scope.launch {

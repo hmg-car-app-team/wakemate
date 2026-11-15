@@ -32,6 +32,8 @@ data class UiState(
     val nearby: List<NearShelter> = emptyList(),
     val dataset: ShelterDataset? = null,
     val drivingMin: Int = 0,
+    /** 화면 표시용 차속(km/h, 정수). 모르면 null. */
+    val speedKmh: Int? = null,
     val recircMin: Int? = null,
     val steerReady: Boolean = false,
     val sim: SimInfo = SimInfo(),

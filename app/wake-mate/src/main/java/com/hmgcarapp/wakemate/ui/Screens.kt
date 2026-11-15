@@ -35,6 +35,7 @@ import com.hmgcarapp.pleos.designsystem.component.PleosHeroSize
 import com.hmgcarapp.pleos.designsystem.component.PleosListItem
 import com.hmgcarapp.pleos.designsystem.component.PleosPanel
 import com.hmgcarapp.pleos.designsystem.component.PleosPopup
+import com.hmgcarapp.pleos.designsystem.component.PleosRoadPanel
 import com.hmgcarapp.pleos.designsystem.component.PleosScaffold
 import com.hmgcarapp.pleos.designsystem.component.PleosSegmentedTabs
 import com.hmgcarapp.pleos.designsystem.component.PleosStageHeroBanner
@@ -55,6 +56,7 @@ import com.hmgcarapp.wakemate.app.UiState
 import com.hmgcarapp.wakemate.domain.Alert
 import com.hmgcarapp.wakemate.domain.NaviStatus
 import com.hmgcarapp.wakemate.domain.NaviText
+import com.hmgcarapp.wakemate.domain.NearShelter
 import com.hmgcarapp.wakemate.domain.RestAdvice
 import com.hmgcarapp.wakemate.domain.RiskResult
 import com.hmgcarapp.wakemate.domain.Stage
@@ -135,13 +137,56 @@ fun WakeMateApp(c: AppController) {
 }
 
 // ---------------- 주행 중: 읽기 전용 한 화면(조작 요소 없음) ----------------
+/** 떠 있는 카드의 큰 줄: 쉼터를 찾았으면 종류·거리, 아니면 단계별 짧은 행동 안내. */
+private fun cardHeadline(stage: Stage, near: NearShelter?): String = when {
+    near != null -> "가까운 ${near.shelter.kindLabel} ${String.format(Locale.KOREA, "%.1f", near.distanceKm)}km"
+    stage == Stage.S3 -> "안전한 곳에 바로 정차하세요"
+    stage == Stage.S2 -> "환기하고 가까운 쉼터에서 쉬어 가세요"
+    else -> "창문을 열고 쉬어 가세요"
+}
+
+/** 작동이 확인된 물리 자극의 짧은 이름(카드 한 줄용). 순서: 공조 · 시트 · 무드등/경고음. */
+private fun activeStimulusNames(specs: List<PleosStimulusSpec>): List<String> = specs.mapIndexedNotNull { i, sp ->
+    if (!sp.active) null else when (i) {
+        0 -> "공조"
+        1 -> "시트"
+        else -> if (sp.stateLabel == "경고음") "경고음" else "무드등"
+    }
+}
+
 @Composable
 private fun DrivingView(c: AppController, s: UiState) {
     val r = s.risk
     val stage = activeStageOf(s)
     val a = s.wake.alert
     val specs = stimulusSpecs(s)
-    Box(Modifier.fillMaxSize().testTag("driving_view")) {
+    Row(Modifier.fillMaxSize().testTag("driving_view"), horizontalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
+        // 왼쪽: 주행 섹션(차속·차선·연속 주행). 단계가 오르면 이 위에 반투명 경고 카드가 뜬다
+        PleosRoadPanel(
+            modifier = Modifier.fillMaxWidth(0.36f).fillMaxHeight(),
+            top = { display ->
+                Txt(s.speedKmh?.toString() ?: "–", display, modifier = Modifier.testTag("speed"))
+                Txt("km/h", PleosTheme.typography.bodyMedium, secondary = true)
+            },
+            bottom = {
+                Txt("쉬지 않은 주행 ${s.drivingMin}분", PleosTheme.typography.titleSmall, modifier = Modifier.testTag("driving_idle"))
+            },
+            overlay = {
+                PleosFloatingAlertCard(
+                    visible = stage != Stage.NONE,
+                    stageLevel = stage.n,
+                    chipLabel = "졸음 ${stage.label}" + (r?.let { " · ${it.score}점" } ?: ""),
+                    modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.88f),
+                ) {
+                    Txt(cardHeadline(stage, a?.shelter), PleosTheme.typography.titleLarge.phrase())
+                    a?.shelterLine?.let { Txt(it, PleosTheme.typography.bodyMedium, secondary = true, modifier = Modifier.testTag("banner_shelter")) }
+                    if (a != null && !Status.isProgress(a.status)) Txt(a.status, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_status"))
+                    val on = activeStimulusNames(specs)
+                    if (on.isNotEmpty()) Txt(on.joinToString(" · ") + " 작동 중", PleosTheme.typography.labelMedium, secondary = true)
+                }
+            },
+        )
+        // 오른쪽: 위험지수 게이지와 물리 자극 카드
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(PleosSpacing.m)) {
             PleosStageHeroBanner(
                 score = r?.score,
@@ -150,27 +195,10 @@ private fun DrivingView(c: AppController, s: UiState) {
                 size = PleosHeroSize.Driving,
                 scoreContent = { fg, st -> Text(r?.score?.toString() ?: "–", style = st, color = fg, modifier = Modifier.testTag("risk_score")) },
                 stageContent = { fg, st -> Text(if (r == null && a == null) "계산 중" else stage.label, style = st, color = fg, modifier = Modifier.testTag("risk_stage")) },
-            ) { fgPrimary, fgSecondary ->
-                Text("쉬지 않은 주행 ${s.drivingMin}분", style = PleosTheme.typography.titleSmall, color = fgPrimary, modifier = Modifier.testTag("driving_idle"))
-                if (stage == Stage.NONE) Text(RestAdvice.next(s.drivingMin, stage), style = PleosTheme.typography.bodyLarge.phrase(), color = fgSecondary)
+            ) { _, fgSecondary ->
+                Text(RestAdvice.next(s.drivingMin, stage), style = PleosTheme.typography.bodyLarge.phrase(), color = fgSecondary)
             }
             PleosStimulusStrip(items = specs, stageLevel = stage.n, showDetail = false)
-        }
-        // 단계가 오르거나 깨우기가 진행 중이면 화면 위에 카드를 띄운다(읽기 전용, 조작 없음)
-        PleosFloatingAlertCard(
-            visible = stage != Stage.NONE,
-            stageLevel = stage.n,
-            chipLabel = "졸음 ${stage.label}" + (r?.let { " · ${it.score}점" } ?: ""),
-            modifier = Modifier.align(Alignment.Center),
-        ) {
-            if (a != null) {
-                a.shelterLine?.let { Txt(it, PleosTheme.typography.headlineSmall, modifier = Modifier.testTag("banner_shelter")) }
-                if (!Status.isProgress(a.status)) Txt(a.status, PleosTheme.typography.titleSmall, modifier = Modifier.testTag("banner_status"))
-                a.detail?.let { Txt(it, PleosTheme.typography.bodyLarge.phrase(), secondary = true, modifier = Modifier.testTag("banner_detail")) }
-            }
-            if (a?.shelterLine == null) Txt(RestAdvice.next(s.drivingMin, stage), PleosTheme.typography.titleSmall.phrase())
-            val on = specs.filter { it.active }.map { it.title }
-            if (on.isNotEmpty()) Txt("작동 중 · " + on.joinToString(" · "), PleosTheme.typography.labelMedium, secondary = true)
         }
     }
 }

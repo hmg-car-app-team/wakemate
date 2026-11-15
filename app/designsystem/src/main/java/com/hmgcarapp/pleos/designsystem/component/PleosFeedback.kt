@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -46,6 +47,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
@@ -310,7 +312,8 @@ fun PleosAmbientEdgeGlow(
 
 /**
  * 화면 위에 떠 있는 경고 카드(주행 중 읽기 전용, 조작 요소 없음).
- * 팝업 면과 그림자로 화면 위에 뜬 층을 만들고, 맨 위 단계 칩(단계 색 바탕 + 어두운 글씨)으로 단계를 알린다.
+ * 팝업 면을 약간 비치게(불투명도 [surfaceAlpha]) 두고 옅은 테두리와 그림자로 아래 화면 위에 뜬 층을 만든다.
+ * 맨 위 단계 칩(단계 색 바탕 + 어두운 글씨)으로 단계를 알린다. 너비는 놓인 영역을 채우되 1080dp를 넘지 않는다.
  * 나타날 때 한 번만 살짝 내려오며 보이고, 사라질 때는 흐려진다.
  */
 @Composable
@@ -319,11 +322,14 @@ fun PleosFloatingAlertCard(
     stageLevel: Int,
     chipLabel: String,
     modifier: Modifier = Modifier,
+    surfaceAlpha: Float = 0.8f,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = PleosTheme.colors
     val d = PleosTheme.dimensions
     val chip = pleosStageColors(colors, stageLevel)
+    val surface = colors.backgroundPopup.copy(alpha = surfaceAlpha.coerceIn(0.6f, 1f))
+    val edge = if (colors.isDark) colors.basicAlphaDark100 else colors.basicAlphaDark50
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
@@ -332,21 +338,78 @@ fun PleosFloatingAlertCard(
     ) {
         Column(
             modifier = Modifier
-                .widthIn(min = 720.dp, max = 1080.dp)
-                .pleosShadow(PleosShadowLevel.Level3, d.popupRadius, colors.backgroundPopup)
+                .fillMaxWidth()
+                .widthIn(max = 1080.dp)
+                .pleosShadow(PleosShadowLevel.Level3, d.popupRadius, surface)
                 .clip(RoundedCornerShape(d.popupRadius))
-                .background(colors.backgroundPopup)
-                .padding(d.popupPadding),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .background(surface)
+                .border(1.dp, edge, RoundedCornerShape(d.popupRadius))
+                .padding(horizontal = 32.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
-                modifier = Modifier.clip(RoundedCornerShape(100)).background(chip.background).padding(horizontal = 20.dp, vertical = 8.dp),
+                modifier = Modifier.clip(RoundedCornerShape(100)).background(chip.background).padding(horizontal = 20.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(chipLabel, style = PleosTheme.typography.titleSmall, color = chip.content, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             content()
         }
+    }
+}
+
+/**
+ * 주행 섹션 면: 원근 차선을 기하 도형으로만 그리고, 위·아래 내용과 그 위에 뜨는 층([overlay])을 얹는다.
+ * 차선은 바탕이라 낮은 대비로 그려 글자보다 눈에 띄지 않게 하고, 아래 글자 줄과 겹치지 않게 그 위에서 끝낸다.
+ * [top] 은 차속 같은 큰 숫자용 글꼴(96sp)을 받는다.
+ */
+@Composable
+fun PleosRoadPanel(
+    modifier: Modifier = Modifier,
+    top: @Composable ColumnScope.(TextStyle) -> Unit,
+    bottom: @Composable ColumnScope.() -> Unit,
+    overlay: @Composable BoxScope.() -> Unit = {},
+) {
+    val colors = PleosTheme.colors
+    val d = PleosTheme.dimensions
+    val display = PleosTheme.typography.headlineLarge.copy(fontSize = 96.sp, lineHeight = 104.sp)
+    val solid = colors.basicAlphaDark200
+    val dashed = colors.basicAlphaDark300
+    val outline = if (colors.isDark) colors.basicAlphaDark100 else colors.basicAlphaDark50
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(d.listRadius))
+            .background(colors.surfaceBasic)
+            .border(1.dp, outline, RoundedCornerShape(d.listRadius)),
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val vx = w / 2f
+            val vy = h * 0.24f
+            val endY = h - 120.dp.toPx()
+            val lanes = listOf(0.08f, 0.37f, 0.63f, 0.92f)
+            lanes.forEachIndexed { i, f ->
+                val bx = f * w
+                val outer = i == 0 || i == lanes.lastIndex
+                drawLine(
+                    color = if (outer) solid else dashed,
+                    start = Offset(vx + (bx - vx) * 0.05f, vy),
+                    end = Offset(vx + (bx - vx) * ((endY - vy) / (h - vy)), endY),
+                    strokeWidth = if (outer) 6.dp.toPx() else 5.dp.toPx(),
+                    cap = StrokeCap.Round,
+                    pathEffect = if (outer) null else PathEffect.dashPathEffect(floatArrayOf(30.dp.toPx(), 24.dp.toPx())),
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column { top(display) }
+            Column(content = bottom)
+        }
+        overlay()
     }
 }
 
