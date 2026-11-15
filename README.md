@@ -27,6 +27,20 @@
 | ![주의](docs/readme/stage-2-caution.jpg) | ![경고](docs/readme/stage-3-warning.jpg) | ![위험](docs/readme/stage-4-danger.jpg) |
 | 노란 가장자리 빛, 휴식 권유 | 주황 빛, 졸음 방지 모드 장치 칩 | 빨간 빛, 가까운 휴게소 거리 |
 
+### 졸음 방지 모드가 바꾸는 것
+경고 단계에서 차량이 지원하는 장치만 바꾸고, 휴식 뒤에는 원래 값으로 되돌립니다.
+
+**핸들 열선**: 꺼짐 → 최대 단계. 차가운 바람과 대비되는 따뜻한 촉각 자극입니다.
+![핸들 열선 꺼짐에서 3단으로](docs/readme/case-wheel.jpg)
+
+**공조·시트 통풍**: 외기 전환, 설정 온도 2℃ 낮춤, 풍량을 최대의 80%로, 운전석 시트 통풍 최대.
+![공조와 시트 통풍 변화](docs/readme/case-climate.jpg)
+
+**무드등**: 실내 조명을 경고색으로 바꾸고, 화면 가장자리도 같은 색으로 빛납니다.
+![무드등 기본색에서 경고색으로](docs/readme/case-ambient.jpg)
+
+핸들 열선·무드등 장면은 합성 연출이고, 공조·시트 통풍 값은 시연 화면에서 가상 차량 응답에 따라 앱이 바꾼 값입니다.
+
 ## 실행 방법
 ```
 adb install -r apk/hmg-car-app-team_WakeMate_release.apk
