@@ -21,7 +21,7 @@ import org.junit.Test
 
 /** 물리 자극 카드는 차량이 확인해 준 것만 '작동'으로 보여야 한다(단계·설정만으로 작동이라 하지 않는다). */
 class StimulusViewTest {
-    private val all = HvacCaps(recirc = true, fan = true, temp = true, fanMin = 1, fanMax = 5, seatVent = true, seatVentMax = 3, ambientColor = true)
+    private val all = HvacCaps(recirc = true, fan = true, temp = true, fanMin = 1, fanMax = 5, seatVent = true, seatVentMax = 3, ambientColor = true, wheelHeat = true, wheelHeatMax = 3)
 
     private fun input(
         caps: HvacCaps = all, capsKnown: Boolean = true, unavailable: Boolean = false, now: HvacNow = HvacNow(),
@@ -31,28 +31,39 @@ class StimulusViewTest {
     private fun states(i: StimulusView.Input) = StimulusView.of(i).map { it.state }
 
     @Test fun dangerStageAlone_neverClaimsHardwareActive() {
-        // 위험 깨우기 중이어도 쓰기 결과가 없으면 공조·시트는 대기. 경고음은 실제로 울리므로 작동
-        assertEquals(listOf(IDLE, IDLE, ACTIVE), states(input(alertStage = Stage.S3)))
-        assertEquals(listOf(IDLE, IDLE, IDLE), states(input(alertStage = Stage.S3, beep = false)))
-        assertEquals("1단계는 경고음이 없다", listOf(IDLE, IDLE, IDLE), states(input(alertStage = Stage.S1)))
+        // 위험 깨우기 중이어도 쓰기 결과가 없으면 공조·시트·열선은 대기. 경고음은 실제로 울리므로 작동
+        assertEquals(listOf(IDLE, IDLE, IDLE, ACTIVE), states(input(alertStage = Stage.S3)))
+        assertEquals(listOf(IDLE, IDLE, IDLE, IDLE), states(input(alertStage = Stage.S3, beep = false)))
+        assertEquals("1단계는 경고음이 없다", listOf(IDLE, IDLE, IDLE, IDLE), states(input(alertStage = Stage.S1)))
     }
 
     @Test fun onlyConfirmedWritesAreActive_failuresShowAsFailed() {
         val mixed = listOf(ItemResult("recirc", true, null), ItemResult("fan", false, 2), ItemResult("seat", true, null), ItemResult("ambient", false, 50001))
         val items = StimulusView.of(input(last = mixed, beep = false))
-        assertEquals(listOf(ACTIVE, ACTIVE, FAILED), items.map { it.state })
+        assertEquals(listOf(ACTIVE, ACTIVE, IDLE, FAILED), items.map { it.state })
         assertEquals(FAILED, StimulusView.of(input(last = listOf(ItemResult("seat", false, 4))))[1].state)
+        assertEquals(FAILED, StimulusView.of(input(last = listOf(ItemResult("wheel", false, 4))))[2].state)
     }
 
     @Test fun unsupported_checking_unavailable_areDistinct() {
-        assertEquals(listOf(IDLE, UNSUPPORTED, UNSUPPORTED), states(input(caps = HvacCaps(recirc = true, fan = true, temp = true))))
-        assertEquals(listOf(CHECKING, CHECKING, CHECKING), states(input(caps = HvacCaps(), capsKnown = false)))
-        assertEquals(listOf(UNAVAILABLE, UNAVAILABLE, UNAVAILABLE), states(input(caps = HvacCaps(), capsKnown = false, unavailable = true)))
+        assertEquals(listOf(IDLE, UNSUPPORTED, UNSUPPORTED, UNSUPPORTED), states(input(caps = HvacCaps(recirc = true, fan = true, temp = true))))
+        assertEquals(listOf(CHECKING, CHECKING, CHECKING, CHECKING), states(input(caps = HvacCaps(), capsKnown = false)))
+        assertEquals(listOf(UNAVAILABLE, UNAVAILABLE, UNAVAILABLE, UNAVAILABLE), states(input(caps = HvacCaps(), capsKnown = false, unavailable = true)))
     }
 
     @Test fun beepCountsEvenWhenAmbientUnsupported() {
-        val card = StimulusView.of(input(caps = HvacCaps(recirc = true), alertStage = Stage.S2))[2]
+        val card = StimulusView.of(input(caps = HvacCaps(recirc = true), alertStage = Stage.S2))[3]
         assertEquals(ACTIVE, card.state); assertEquals("경고음", card.label)
+        assertEquals("칩 이름도 경고음", "경고음", card.chipLabel)
+    }
+
+    @Test fun wheelHeat_activeOnlyAfterVehicleConfirms_andShowsReadback() {
+        val wheel = StimulusView.of(input(last = listOf(ItemResult("wheel", true, null)), now = HvacNow(wheelHeat = 3)))[2]
+        assertEquals(ACTIVE, wheel.state)
+        assertEquals("핸들 열선 3단", wheel.detail)
+        assertEquals("열선", wheel.chipLabel)
+        assertEquals(UNSUPPORTED, StimulusView.of(input(caps = all.copy(wheelHeat = false)))[2].state)
+        assertEquals(listOf("공조", "시트", "열선", "무드등"), StimulusView.of(input()).map { it.chipLabel })
     }
 
     @Test fun autoControlOff_isIdleWithReason() {

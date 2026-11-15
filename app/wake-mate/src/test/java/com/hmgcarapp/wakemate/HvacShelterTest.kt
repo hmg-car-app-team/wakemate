@@ -72,6 +72,18 @@ class HvacShelterTest {
         assertFalse(HvacPlan.usable(true, HvacCaps(seatVent = true, ambientColor = true), ventOnly = true))
     }
 
+    @Test fun plan_addsSteeringWheelHeatAtMax_onlyWhenSupportedAndNotAlreadyOn() {
+        val wheelCaps = HvacCaps(wheelHeat = true, wheelHeatMax = 3)
+        assertEquals(HvacTargets(wheelHeat = 3), HvacPlan.plan(HvacNow(wheelHeat = 0), wheelCaps))
+        assertEquals(listOf("wheel"), HvacPlan.plan(HvacNow(), wheelCaps).kinds)
+        assertTrue("이미 최대면 쓰지 않는다", HvacPlan.plan(HvacNow(wheelHeat = 3), wheelCaps).isEmpty)
+        assertTrue("미지원이면 쓰지 않는다", HvacPlan.plan(HvacNow(wheelHeat = 0), HvacCaps()).isEmpty)
+        assertTrue(HvacPlan.usable(true, wheelCaps, ventOnly = false))
+        assertEquals("핸들 열선을 켰어요", HvacReport.summary(listOf(ItemResult("wheel", true, null)), HvacTargets(wheelHeat = 3), true))
+        assertEquals("핸들 열선은 주행 중에는 차량 정책상 앱이 바꿀 수 없어요",
+            HvacReport.summary(listOf(ItemResult("wheel", false, HvacErrors.DRIVING_RESTRICTED)), HvacTargets(wheelHeat = 3), true))
+    }
+
     @Test fun report_namesSeatAndAmbientResultsHonestly() {
         val planned = HvacTargets(seatVent = 3, ambientColor = HvacPlan.ALERT_AMBIENT_ARGB)
         assertEquals("시트 통풍을 켰어요, 실내 조명을 경고색으로 바꿨어요",

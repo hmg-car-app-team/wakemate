@@ -34,6 +34,12 @@ class StimulusRestoreTest {
         assertTrue(WakeFlow.reduce(s2(), WakeEvent.Rested).second.isEmpty())
     }
 
+    @Test fun wheelHeat_isRestoredToItsOriginalLevel() {
+        val s = applied(s2(), listOf(ItemResult("wheel", true, null)), HvacTargets(wheelHeat = 0))
+        assertEquals(HvacTargets(wheelHeat = 0), s.restoreStimulus)
+        assertEquals(listOf(WakeEffect.RestoreStimulus(HvacTargets(wheelHeat = 0))), WakeFlow.reduce(s, WakeEvent.Rested).second)
+    }
+
     @Test fun episodeEndAfterThreeNormalMinutes_restoresOnce() {
         var s = applied(s2(), okBoth, HvacTargets(seatVent = 0, ambientColor = blue))
         s = WakeFlow.reduce(s, WakeEvent.RiskUpdated(100_000, 10, Stage.NONE)).first

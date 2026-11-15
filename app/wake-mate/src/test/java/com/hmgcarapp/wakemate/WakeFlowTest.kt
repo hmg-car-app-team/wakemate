@@ -366,6 +366,17 @@ class WakeFlowTest {
     }
 
     // ---------------- 3단계: 쉼터 ----------------
+    @Test fun stage3_alsoAppliesPhysicalStimuli_withoutChangingShelterFlow() {
+        val h = H()
+        h.send(WakeEvent.RiskUpdated(0, 85, Stage.S3))
+        val ok = listOf(ItemResult("seat", true, null), ItemResult("wheel", true, null), ItemResult("ambient", true, null))
+        assertTrue("쉼터 안내 중에는 공조 결과를 말하지 않는다", h.send(WakeEvent.HvacApplied(1, ok, HvacTargets(seatVent = 3, wheelHeat = 3), true, original = HvacTargets(seatVent = 0, wheelHeat = 0))).isEmpty())
+        assertEquals(ok, h.s.lastHvac)
+        assertEquals(Status.PREPARING, h.alert!!.status); assertNull(h.alert!!.finalStatus)
+        assertEquals(HvacTargets(seatVent = 0, wheelHeat = 0), h.s.restoreStimulus)
+        assertTrue("공조 자동 조절이 꺼져 있으면 쓰지 않는다", H(WakeState(hvacControl = false)).send(WakeEvent.RiskUpdated(0, 85, Stage.S3)).none { it is WakeEffect.ApplyHvac })
+    }
+
     private fun H.toS3Listening(plan: RouteMode = RouteMode.NONE): H {
         send(WakeEvent.RiskUpdated(0, 85, Stage.S3))
         send(WakeEvent.ShelterPlanned(1, near, RoutePlans.decide(plan), sampleData = true))
@@ -376,7 +387,7 @@ class WakeFlowTest {
     @Test fun stage3_planThenSpeakWithSampleNotice_thenVoiceAcceptStartsNavi() {
         val h = H()
         val fx0 = h.send(WakeEvent.RiskUpdated(0, 85, Stage.S3))
-        assertEquals(commonFx + listOf(WakeEffect.Beep(1, Stage.S3), WakeEffect.PlanShelter(1)), fx0)
+        assertEquals(commonFx + listOf(WakeEffect.Beep(1, Stage.S3), WakeEffect.PlanShelter(1), WakeEffect.ApplyHvac(1)), fx0)
         val fx1 = h.send(WakeEvent.ShelterPlanned(1, near, RoutePlans.decide(RouteMode.NONE), true))
         assertEquals(
             listOf(WakeEffect.Speak(1, "졸음 위험지수 85점으로 매우 높아요. 가까운 졸음쉼터, 가상 샘플 쉼터 1, 약 1.2킬로미터예요. 안내를 시작할까요?")),

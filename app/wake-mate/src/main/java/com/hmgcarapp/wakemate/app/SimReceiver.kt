@@ -16,6 +16,7 @@ import com.hmgcarapp.wakemate.domain.SimInput
  *  주행·내기 --ei drivemin 90   --ei recircmin 30
  *  신호      --ef speed 80  --es gear D|P  --ef steer 7.5  --ef lat 37.5 --ef lon 127.03 [--ef heading 90(0~360, lat/lon 과 함께)]  --ez hub true|false
  *  단계      --ei stage 1|2|3     --es heard "응"     --ez rest true     --ez reset true
+ *  가상 차량 --ez vcar true|false  (공조·시트 통풍·핸들 열선·무드등 쓰기를 받아 주는 시연용 차량. Pleos 차량 서비스가 없는 에뮬레이터용)
  */
 internal object SimReceiver {
     const val ACTION = "com.hmgcarapp.wakemate.SIM"
@@ -34,6 +35,7 @@ internal object SimReceiver {
                 fun raw(k: String): Any? = ex?.get(k)
                 fun bad(k: String) = HmgLog.w("WakeMate", "SIM 무시: $k=${raw(k)} (형식 또는 범위 오류)")
                 if (i.getBooleanExtra("reset", false)) c.simReset()
+                if (i.hasExtra("vcar")) c.simVirtualCar(i.getBooleanExtra("vcar", false))
                 if (i.hasExtra("pattern")) {
                     val s = i.getStringExtra("pattern")
                     when { SimInput.isOff(s) -> c.simPattern(null); SimInput.pattern(s) != null -> c.simPattern(SimInput.pattern(s)); else -> bad("pattern") }

@@ -42,9 +42,10 @@ interface WakeHvac {
 }
 
 /**
- * Pleos Vehicle SDK HVAC 어댑터(운전석 기준). 외기 순환/풍량/온도를 쓰고, 내기순환·풍량·온도·전원은 읽기만 한다.
+ * Pleos Vehicle SDK HVAC 어댑터(운전석 기준). 외기 순환/풍량/온도·시트 통풍·스티어링휠 열선·무드등 색을 쓰고, 전원은 읽기만 한다.
  * 연결·복구는 core [ManagedConnection] 이 맡는다(재연결 로직 없음). 모든 SDK 콜백은 Unit 을 반환하고 세대 필터를 거친다.
- * 영역은 속성별 capability 응답에서 [AreaPicker] 로 고른 것만 쓴다(고정 영역 금지). 쓰기 성공은 SDK 의 성공 콜백을 받은 항목만 성공으로 센다.
+ * 영역은 속성별 capability 응답에서 [AreaPicker] 로 고른 것만 쓴다(고정 영역 금지). 스티어링휠 열선은 영역이 없는 차량 전체 속성이다.
+ * 쓰기 성공은 SDK 의 성공 콜백을 받은 항목만 성공으로 센다.
  * 권한: pleos.car.permission.CAR_CLIMATE / CONTROL_CAR_CLIMATE.
  */
 class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemClock::elapsedRealtime) : WakeHvac {
@@ -98,11 +99,13 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
         return i?.let { l[it] }
     }
 
-    private fun capDone(gen: Int, kind: String, cfg: CapabilityConfig?, area: SeatArea?, update: (HvacCaps, Boolean) -> HvacCaps) {
+    /** [global] 은 영역 없이 차량 전체에 쓰는 속성(스티어링휠 열선). */
+    private fun capDone(gen: Int, kind: String, cfg: CapabilityConfig?, area: SeatArea?, global: Boolean = false, update: (HvacCaps, Boolean) -> HvacCaps) {
         if (!conn.isCurrent(gen)) return
         conn.onAlive(gen)
-        val w = cfg != null && writable(cfg) && area != null
-        val r = cfg != null && readableAccess(cfg) && area != null
+        val located = global || area != null
+        val w = cfg != null && writable(cfg) && located
+        val r = cfg != null && readableAccess(cfg) && located
         HmgLog.i("WakeHvac", "capability $kind access=${cfg?.accessType} 쓰기=$w 읽기=$r")
         synchronized(lock) {
             if (area != null) areas[kind] = area
@@ -117,7 +120,7 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
     private fun requestCaps(c: Conn<Session>) {
         val v = c.value.vehicle; val gen = c.gen
         val h = v.getHVAC()
-        synchronized(lock) { pendingCaps = 6; capsAt = clock(); caps = HvacCaps(); now = HvacNow(); err = null; areas.clear(); readable.clear(); capsKnown = false }
+        synchronized(lock) { pendingCaps = 7; capsAt = clock(); caps = HvacCaps(); now = HvacNow(); err = null; areas.clear(); readable.clear(); capsKnown = false }
         val fail: (String) -> (Exception) -> Unit = { name -> { e -> conn.ifCurrent(gen) { conn.onFailure(gen, e); HmgLog.w("WakeHvac", "capability $name 실패: ${e.javaClass.simpleName}"); capDone(gen, name, null, null) { cp, _ -> cp } } } }
         h.checkHvacRecirculationCapabilities({ cfg: CapabilityConfig, l: List<SeatArea> -> capDone(gen, "recirc", cfg, pick("recirc", l)) { cp, ok -> cp.copy(recirc = ok) } }, fail("recirc"))
         h.checkHvacFanSpeedCapabilities({ cfg: CapabilityConfig, m: Map<SeatArea, AreaBounds<Int>> ->
@@ -135,6 +138,10 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
         }
         optionalCap("ambient", fail) {
             v.getLight().checkAmbientLightBrightnessColorCapabilities({ cfg: CapabilityConfig, l: List<SeatArea> -> capDone(gen, "ambient", cfg, pick("ambient", l)) { cp, ok -> cp.copy(ambientColor = ok) } }, fail("ambient"))
+        }
+        optionalCap("wheel", fail) {
+            v.getSteeringWheel().checkHvacSteeringWheelHeatCapabilities({ cfg: CapabilityConfig, b: AreaBounds<Int>? ->
+                capDone(gen, "wheel", cfg, null, global = true) { cp, ok -> cp.copy(wheelHeat = ok, wheelHeatMax = b?.maxValue?.coerceAtLeast(1) ?: cp.wheelHeatMax) } }, fail("wheel"))
         }
     }
 
@@ -157,6 +164,7 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
         if ("power" in rd) h.getHvacPowerState(areaOf("power"), { b: Boolean? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("power") { it.copy(power = b) } } }, bad)
         if ("seat" in rd) v.getSeat().getHvacSeatVentilationState(areaOf("seat"), { x: Int? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("seat") { it.copy(seatVent = x) } } }, bad)
         if ("ambient" in rd) v.getLight().getAmbientLightBrightnessColor(areaOf("ambient"), { x: Int? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("ambient") { it.copy(ambientColor = x) } } }, bad)
+        if ("wheel" in rd) v.getSteeringWheel().getHvacSteeringWheelHeatState({ x: Int? -> conn.ifCurrent(gen) { conn.onResponse(gen); observe("wheel") { it.copy(wheelHeat = x) } } }, bad)
     }
 
     private class Batch(val kinds: List<String>, val at: Long, val cb: (List<ItemResult>) -> Unit) { val results = ArrayList<ItemResult>() }
@@ -188,6 +196,7 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
             if (t.tempC != null && cp.temp) add("temp")
             if (t.seatVent != null && cp.seatVent) add("seat")
             if (t.ambientColor != null && cp.ambientColor) add("ambient")
+            if (t.wheelHeat != null && cp.wheelHeat) add("wheel")
         }
         if (c == null || kinds.isEmpty()) { onDone(emptyList()); return 0 }
         val gen = c.gen; val v = c.value.vehicle; val h = v.getHVAC()
@@ -202,6 +211,7 @@ class PleosWakeHvac(context: Context, private val clock: () -> Long = SystemCloc
         if ("temp" in kinds) guard("temp") { h.setHvacTemperature(areaOf("temp"), t.tempC!!, TemperatureUnit.CELSIUS, { a, r -> ok("temp")(a, r) }, fail("temp")) }
         if ("seat" in kinds) guard("seat") { v.getSeat().setHvacSeatVentilation(areaOf("seat"), t.seatVent!!, { a, r -> ok("seat")(a, r) }, fail("seat")) }
         if ("ambient" in kinds) guard("ambient") { v.getLight().setAmbientLightBrightnessColor(areaOf("ambient"), t.ambientColor!!, { a, r -> ok("ambient")(a, r) }, fail("ambient")) }
+        if ("wheel" in kinds) guard("wheel") { v.getSteeringWheel().setHvacSteeringWheelHeat(t.wheelHeat!!, { x: Int? -> ok("wheel")(x, null) }, fail("wheel")) }
         HmgLog.i("WakeHvac", "공조 명령 ${n}건 전송(${kinds.joinToString(",")})")
         return n
     }

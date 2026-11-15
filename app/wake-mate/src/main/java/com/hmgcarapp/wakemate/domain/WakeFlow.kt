@@ -56,10 +56,7 @@ data class Alert(
     val ventOffer: Boolean = false,
 ) {
     /** 3단계 쉼터 한 줄(배너·주행 화면 공통). 샘플 여부·출처 표기는 붙이지 않는다. */
-    val shelterLine: String? get() = shelter?.let {
-        if (sampleData) it.shelter.name
-        else listOf(it.shelter.kindLabel, it.shelter.name, it.shelter.directionLabel).filter { p -> p.isNotEmpty() }.joinToString(" ")
-    }
+    val shelterLine: String? get() = shelter?.line(sampleData)
 }
 
 data class ReplaceConfirm(val shelterId: String)
@@ -89,7 +86,7 @@ data class WakeState(
     val ventOffered: Boolean = false,
     /** 이번 에피소드에서 차량이 응답한 마지막 쓰기 결과(항목별 최신). 자극 카드 '작동' 표시의 근거. 휴식·에피소드 초기화 때 비운다. */
     val lastHvac: List<ItemResult> = emptyList(),
-    /** 앱이 바꾼 시트 통풍·무드등의 원래 값(처음 바꿀 때 값만 유지). 휴식·에피소드 종료 때 되돌리고 비운다. */
+    /** 앱이 바꾼 시트 통풍·핸들 열선·무드등의 원래 값(처음 바꿀 때 값만 유지). 휴식·에피소드 종료 때 되돌리고 비운다. */
     val restoreStimulus: HvacTargets? = null,
 ) {
     val inFlight: Boolean get() = alert?.finished == false
@@ -107,7 +104,7 @@ sealed interface WakeEvent {
     data class ShelterPlanned(val id: Long, val near: NearShelter?, val plan: RoutePlan?, val sampleData: Boolean, val locationKnown: Boolean = true, val headingApplied: Boolean = false) : WakeEvent
     data class VoiceSpoken(val id: Long, val ok: Boolean) : WakeEvent
     data class VoiceHeard(val id: Long, val purpose: Purpose, val heard: Heard, val responseMs: Long) : WakeEvent
-    /** [original] 은 쓰기 직전에 읽은 시트 통풍·무드등 값(되돌리기용). */
+    /** [original] 은 쓰기 직전에 읽은 시트 통풍·핸들 열선·무드등 값(되돌리기용). */
     data class HvacApplied(val id: Long, val results: List<ItemResult>, val planned: HvacTargets, val connected: Boolean, val baseTempC: Float? = null, val ventOnly: Boolean = false, val original: HvacTargets? = null) : WakeEvent
     data class NaviResult(val id: Long?, val status: NaviStatus?) : WakeEvent
     data class ResultSpoken(val id: Long) : WakeEvent
@@ -148,7 +145,7 @@ sealed interface WakeEffect {
     data object ApplyNotSleepy : WakeEffect
     data class RecordQuiz(val outcome: Quiz.Outcome, val responseMs: Long) : WakeEffect
     data class Warn(val text: String) : WakeEffect
-    /** 휴식·에피소드 종료 때 시트 통풍·무드등을 원래 값으로 되돌린다. */
+    /** 휴식·에피소드 종료 때 시트 통풍·핸들 열선·무드등을 원래 값으로 되돌린다. */
     data class RestoreStimulus(val targets: HvacTargets) : WakeEffect
 }
 
@@ -274,9 +271,9 @@ object WakeFlow {
     private fun rememberOriginal(old: HvacTargets?, e: WakeEvent.HvacApplied): HvacTargets? {
         val ok = e.results.filter { it.ok }.map { it.kind }.toSet()
         val o = e.original ?: return old
-        val add = HvacTargets(seatVent = o.seatVent?.takeIf { "seat" in ok }, ambientColor = o.ambientColor?.takeIf { "ambient" in ok })
+        val add = HvacTargets(seatVent = o.seatVent?.takeIf { "seat" in ok }, ambientColor = o.ambientColor?.takeIf { "ambient" in ok }, wheelHeat = o.wheelHeat?.takeIf { "wheel" in ok })
         if (add.isEmpty) return old
-        return HvacTargets(seatVent = old?.seatVent ?: add.seatVent, ambientColor = old?.ambientColor ?: add.ambientColor)
+        return HvacTargets(seatVent = old?.seatVent ?: add.seatVent, ambientColor = old?.ambientColor ?: add.ambientColor, wheelHeat = old?.wheelHeat ?: add.wheelHeat)
     }
 
     private fun drive(s: WakeState, driving: Boolean): Pair<WakeState, List<WakeEffect>> {
@@ -309,7 +306,10 @@ object WakeFlow {
                 ns.copy(alert = base.copy(status = Status.SPEAKING)) to
                     (common + WakeEffect.Beep(id, Stage.S2) + WakeEffect.Speak(id, text) + (if (s.hvacControl) listOf(WakeEffect.ApplyHvac(id)) else NONE))
             }
-            else -> ns.copy(alert = base.copy(status = Status.PREPARING)) to (common + WakeEffect.Beep(id, Stage.S3) + WakeEffect.PlanShelter(id))
+            // 위험 단계도 물리 자극(공조·시트 통풍·핸들 열선·무드등)을 함께 켠다: 경고 단계를 건너뛰고 바로 위험이 된 경우에도 몸으로 느끼게.
+            // 결과는 자극 카드에만 반영하고 음성은 쉼터 안내에 집중한다(아래 hvac 참고)
+            else -> ns.copy(alert = base.copy(status = Status.PREPARING)) to
+                (common + WakeEffect.Beep(id, Stage.S3) + WakeEffect.PlanShelter(id) + (if (s.hvacControl) listOf(WakeEffect.ApplyHvac(id)) else NONE))
         }
     }
 
@@ -355,6 +355,8 @@ object WakeFlow {
         // 현재 알림의 쓰기 결과만 자극 카드의 근거로 남긴다(교체된 알림의 결과는 상태를 바꾸지 않는다)
         val s = s1.copy(lastHvac = s1.lastHvac.filter { o -> e.results.none { it.kind == o.kind } } + e.results)
         if (a.finished) return s to NONE
+        // 위험 단계: 쓰기 결과는 자극 카드 근거로만 남기고, 쉼터 안내 흐름(상태·음성)은 건드리지 않는다
+        if (a.stage == Stage.S3) return s to NONE
         val summary = HvacReport.summary(e.results, e.planned, e.connected, e.ventOnly)
         val fin = when {
             !e.connected -> Status.FAILED

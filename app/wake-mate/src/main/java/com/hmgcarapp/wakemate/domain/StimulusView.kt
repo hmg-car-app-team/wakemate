@@ -4,12 +4,17 @@ import java.util.Locale
 
 enum class StimulusState { CHECKING, UNAVAILABLE, UNSUPPORTED, IDLE, ACTIVE, FAILED }
 
-data class StimulusItem(val title: String, val state: StimulusState, val label: String, val detail: String) {
+/** 자극 종류. [short] 는 경고 카드 칩에 쓰는 짧은 이름. */
+enum class StimulusKind(val short: String) { AIR("공조"), SEAT("시트"), WHEEL("열선"), LIGHT("무드등") }
+
+data class StimulusItem(val title: String, val state: StimulusState, val label: String, val detail: String, val kind: StimulusKind = StimulusKind.AIR) {
     val active: Boolean get() = state == StimulusState.ACTIVE
+    /** 카드 칩 이름. 무드등을 못 바꾸고 경고음만 울렸으면 '경고음'. */
+    val chipLabel: String get() = if (kind == StimulusKind.LIGHT && label == "경고음") "경고음" else kind.short
 }
 
 /**
- * 물리 자극 카드 3장(공조 환기 · 시트 통풍 · 무드등과 경고음)의 상태(순수).
+ * 물리 자극 카드 4장(공조 환기 · 시트 통풍 · 핸들 열선 · 무드등과 경고음)의 상태(순수).
  * '작동'은 차량이 쓰기 성공을 알려 준 항목과 실제로 울린 경고음뿐이다. 위험 단계나 설정만으로 작동이라고 하지 않는다.
  */
 object StimulusView {
@@ -26,7 +31,12 @@ object StimulusView {
         val beep: Boolean,
     )
 
-    fun of(i: Input): List<StimulusItem> = listOf(air(i), seat(i), lightAndSound(i))
+    fun of(i: Input): List<StimulusItem> = listOf(
+        air(i).copy(kind = StimulusKind.AIR),
+        seat(i).copy(kind = StimulusKind.SEAT),
+        wheel(i).copy(kind = StimulusKind.WHEEL),
+        lightAndSound(i).copy(kind = StimulusKind.LIGHT),
+    )
 
     private fun results(i: Input, vararg kinds: String) = i.last.filter { it.kind in kinds }
 
@@ -64,6 +74,18 @@ object StimulusView {
             rs.any { it.ok } -> StimulusItem(title, StimulusState.ACTIVE, "작동", detail)
             rs.isNotEmpty() -> StimulusItem(title, StimulusState.FAILED, "실패", detail)
             else -> waiting(i, title, i.caps.seatVent, detail, "이 차량에서는 앱이 시트 통풍을 바꿀 수 없어요")
+        }
+    }
+
+    private fun wheel(i: Input): StimulusItem {
+        val title = "핸들 열선"
+        val lv = i.now.wheelHeat
+        val detail = if (lv != null && lv > 0) "핸들 열선 ${lv}단" else "경고 단계에서 핸들 열선 최대"
+        val rs = results(i, "wheel")
+        return when {
+            rs.any { it.ok } -> StimulusItem(title, StimulusState.ACTIVE, "작동", detail)
+            rs.isNotEmpty() -> StimulusItem(title, StimulusState.FAILED, "실패", detail)
+            else -> waiting(i, title, i.caps.wheelHeat, detail, "이 차량에서는 앱이 핸들 열선을 바꿀 수 없어요")
         }
     }
 

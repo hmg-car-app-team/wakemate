@@ -41,10 +41,13 @@ import com.hmgcarapp.pleos.designsystem.component.PleosSegmentedTabs
 import com.hmgcarapp.pleos.designsystem.component.PleosStageHeroBanner
 import com.hmgcarapp.pleos.designsystem.component.PleosStatus
 import com.hmgcarapp.pleos.designsystem.component.PleosStatusBadge
+import com.hmgcarapp.pleos.designsystem.component.PleosStimulusChip
+import com.hmgcarapp.pleos.designsystem.component.PleosStimulusChips
 import com.hmgcarapp.pleos.designsystem.component.PleosStimulusSpec
 import com.hmgcarapp.pleos.designsystem.component.PleosStimulusStrip
 import com.hmgcarapp.pleos.designsystem.component.PleosSwitch
 import com.hmgcarapp.pleos.designsystem.component.rememberPleosToastState
+import com.hmgcarapp.pleos.designsystem.icon.PleosIcons
 import com.hmgcarapp.pleos.designsystem.theme.PleosSpacing
 import com.hmgcarapp.pleos.designsystem.theme.PleosTheme
 import com.hmgcarapp.pleos.designsystem.theme.PleosWindowMode
@@ -61,6 +64,8 @@ import com.hmgcarapp.wakemate.domain.RestAdvice
 import com.hmgcarapp.wakemate.domain.RiskResult
 import com.hmgcarapp.wakemate.domain.Stage
 import com.hmgcarapp.wakemate.domain.Status
+import com.hmgcarapp.wakemate.domain.StimulusItem
+import com.hmgcarapp.wakemate.domain.StimulusKind
 import com.hmgcarapp.wakemate.domain.StimulusView
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -82,8 +87,8 @@ internal fun activeStageOf(s: UiState): Stage {
     return if (aStage.n > rStage.n) aStage else rStage
 }
 
-/** 물리 자극 카드 3장: 차량 응답(쓰기 성공·읽은 값) 기준 상태를 카드 명세로 바꾼다. */
-private fun stimulusSpecs(s: UiState): List<PleosStimulusSpec> =
+/** 물리 자극 4종(공조·시트 통풍·핸들 열선·무드등과 경고음)의 차량 응답(쓰기 성공·읽은 값) 기준 상태. */
+private fun stimulusItems(s: UiState): List<StimulusItem> =
     StimulusView.of(
         StimulusView.Input(
             capsKnown = s.hvac.capsKnown,
@@ -95,7 +100,21 @@ private fun stimulusSpecs(s: UiState): List<PleosStimulusSpec> =
             autoControl = s.p.settings.hvacControl,
             beep = s.p.settings.beep,
         ),
-    ).map { PleosStimulusSpec(it.title, it.label, it.detail, it.active) }
+    )
+
+/** 물리 자극 카드 명세. */
+private fun stimulusSpecs(s: UiState): List<PleosStimulusSpec> = stimulusItems(s).map { PleosStimulusSpec(it.title, it.label, it.detail, it.active) }
+
+/** 경고 카드 칩: 차량이 작동을 확인해 준 자극만 아이콘과 짧은 이름으로. */
+private fun stimulusChips(s: UiState): List<PleosStimulusChip> = stimulusItems(s).filter { it.active }.map { item ->
+    val icon = when (item.kind) {
+        StimulusKind.AIR -> PleosIcons.Air
+        StimulusKind.SEAT -> PleosIcons.SeatVent
+        StimulusKind.WHEEL -> PleosIcons.SteeringWheel
+        StimulusKind.LIGHT -> if (item.chipLabel == "경고음") PleosIcons.Sound else PleosIcons.AmbientLight
+    }
+    PleosStimulusChip(icon, item.chipLabel)
+}
 
 @Composable
 fun WakeMateApp(c: AppController) {
@@ -145,32 +164,29 @@ private fun cardHeadline(stage: Stage, near: NearShelter?): String = when {
     else -> "창문을 열고 쉬어 가세요"
 }
 
-/** 작동이 확인된 물리 자극의 짧은 이름(카드 한 줄용). 순서: 공조 · 시트 · 무드등/경고음. */
-private fun activeStimulusNames(specs: List<PleosStimulusSpec>): List<String> = specs.mapIndexedNotNull { i, sp ->
-    if (!sp.active) null else when (i) {
-        0 -> "공조"
-        1 -> "시트"
-        else -> if (sp.stateLabel == "경고음") "경고음" else "무드등"
-    }
-}
-
-/** 떠 있는 경고 카드(주행 화면과 디버그용 Pleos 화면 미리보기가 함께 쓴다). 단계가 정상이면 숨는다. 읽기 전용. */
+/**
+ * 떠 있는 경고 카드(주행 화면과 디버그용 Pleos 화면 시연이 함께 쓴다). 단계가 정상이면 숨는다. 읽기 전용.
+ * 위험 단계에서는 깨우기 안내가 끝난 뒤에도(안내 카드 만료 후) 현재 위치 기준 가장 가까운 쉼터를 계속 보여 준다.
+ * [showStatus] 가 false 면 음성 대화 결과 줄(응답 없음·실패 등)을 숨긴다(시연 화면용).
+ */
 @Composable
-internal fun WakeAlertCard(s: UiState, modifier: Modifier = Modifier) {
+internal fun WakeAlertCard(s: UiState, modifier: Modifier = Modifier, showStatus: Boolean = true) {
     val r = s.risk
     val stage = activeStageOf(s)
     val a = s.wake.alert
+    val near = a?.shelter ?: s.nearby.firstOrNull()?.takeIf { stage == Stage.S3 }
+    val line = a?.shelterLine ?: near?.line(s.dataset?.sample ?: true)
     PleosFloatingAlertCard(
         visible = stage != Stage.NONE,
         stageLevel = stage.n,
         chipLabel = "졸음 ${stage.label}" + (r?.let { " · ${it.score}점" } ?: ""),
         modifier = modifier,
     ) {
-        Txt(cardHeadline(stage, a?.shelter), PleosTheme.typography.titleLarge.phrase())
-        a?.shelterLine?.let { Txt(it, PleosTheme.typography.bodyMedium, secondary = true, modifier = Modifier.testTag("banner_shelter")) }
-        if (a != null && !Status.isProgress(a.status)) Txt(a.status, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_status"))
-        val on = activeStimulusNames(stimulusSpecs(s))
-        if (on.isNotEmpty()) Txt(on.joinToString(" · ") + " 작동 중", PleosTheme.typography.labelMedium, secondary = true)
+        Txt(cardHeadline(stage, near), PleosTheme.typography.titleLarge.phrase())
+        line?.let { Txt(it, PleosTheme.typography.bodyMedium, secondary = true, modifier = Modifier.testTag("banner_shelter")) }
+        if (showStatus && a != null && !Status.isProgress(a.status)) Txt(a.status, PleosTheme.typography.labelMedium, secondary = true, modifier = Modifier.testTag("banner_status"))
+        val chips = stimulusChips(s)
+        if (chips.isNotEmpty()) PleosStimulusChips(chips, stage.n, Modifier.testTag("card_stimulus"))
     }
 }
 
@@ -384,7 +400,7 @@ private fun SettingsPage(c: AppController, s: UiState) {
 private fun DebugPanel(s: UiState) {
     PleosPanel(Modifier.fillMaxWidth(), title = "시연 상태 (debug)") {
         val sim = s.sim
-        Txt("패턴 ${sim.pattern ?: "없음"} · 시각 ${sim.minuteOfDay?.let { "%02d:%02d".format(it / 60, it % 60) } ?: "실시간"} · 주행 +${sim.extraDriveMin}분 · 내기 ${sim.extraRecircMin}분 · 허브 ${if (sim.hubOn) "켬" else "끔"}", PleosTheme.typography.labelMedium, secondary = true)
-        Txt("adb: am broadcast -a com.hmgcarapp.wakemate.SIM --es pattern drowsy --ei hour 3 --ei drivemin 90", PleosTheme.typography.labelSmall, secondary = true)
+        Txt("패턴 ${sim.pattern ?: "없음"} · 시각 ${sim.minuteOfDay?.let { "%02d:%02d".format(it / 60, it % 60) } ?: "실시간"} · 주행 +${sim.extraDriveMin}분 · 내기 ${sim.extraRecircMin}분 · 허브 ${if (sim.hubOn) "켬" else "끔"} · 가상 차량 ${if (sim.virtualCar) "켬" else "끔"}", PleosTheme.typography.labelMedium, secondary = true)
+        Txt("adb: am broadcast -a com.hmgcarapp.wakemate.SIM --ez vcar true --es pattern drowsy --ei hour 3 --ei drivemin 90", PleosTheme.typography.labelSmall, secondary = true)
     }
 }

@@ -1,9 +1,11 @@
 package com.hmgcarapp.pleos.designsystem.component
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.animateColorAsState
@@ -16,6 +18,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -30,11 +34,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,6 +56,7 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -420,6 +427,51 @@ data class PleosStimulusSpec(
     val detail: String,
     val active: Boolean,
 )
+
+/** 경고 카드 안에 넣는 작동 장치 칩(아이콘 + 짧은 이름). */
+data class PleosStimulusChip(val icon: ImageVector, val label: String)
+
+/**
+ * 작동 중인 차량 자극 칩 줄(예: 공조 · 시트 · 열선 · 무드등). 단계 색을 옅게 섞은 면과 단계 색 테두리에
+ * 아이콘·이름은 기본 글씨색으로 써서 대비를 지킨다. 칩이 많으면 다음 줄로 넘긴다.
+ * 새 칩은 처음 나타날 때 한 번만 살짝 커지며 보인다(반복 모션 없음).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PleosStimulusChips(items: List<PleosStimulusChip>, stageLevel: Int, modifier: Modifier = Modifier) {
+    val colors = PleosTheme.colors
+    val tone = pleosStageTone(colors, stageLevel)
+    val fill = tone.copy(alpha = 0.16f).compositeOver(colors.backgroundPopup)
+    val shape = RoundedCornerShape(100)
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items.forEach { item ->
+            key(item.label) {
+                val shown = remember { MutableTransitionState(false).apply { targetState = true } }
+                AnimatedVisibility(
+                    visibleState = shown,
+                    enter = fadeIn(tween(PleosMotion.DurationMedium2)) + scaleIn(tween(PleosMotion.DurationMedium2, easing = PleosMotion.Emphasized), initialScale = 0.85f),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(shape)
+                            .background(fill)
+                            .border(1.dp, tone.copy(alpha = 0.5f), shape)
+                            .padding(start = 14.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(item.icon, contentDescription = null, tint = colors.textDarkPrimary, modifier = Modifier.size(32.dp))
+                        Text(item.label, style = PleosTheme.typography.labelMedium.strong(), color = colors.textDarkPrimary, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
 
 /**
  * 차량 물리 자극 카드 줄. 작동이 확인된 장치만 단계 색을 옅게 섞은 면과 단계 색 점으로 켜진다.

@@ -116,6 +116,7 @@ class WakeRunner(
         val usable = HvacPlan.usable(snap.connected, snap.caps, ventOnly)
         val base = if (ventOnly) null else ui().wake.baseTempC ?: snap.now.tempC
         val targets = if (!usable) HvacTargets() else if (ventOnly) HvacPlan.planVent(snap.now, snap.caps) else HvacPlan.plan(snap.now, snap.caps, base)
+        HmgLog.i("Wake", "자극 적용 id=$id 연결=${snap.connected} 사용가능=$usable 대상=${targets.kinds}")
         val results: List<ItemResult> = if (!usable || targets.isEmpty) emptyList() else {
             withTimeoutOrNull(HVAC_WAIT_MS) {
                 suspendCancellableCoroutine<List<ItemResult>> { cont ->
@@ -124,8 +125,12 @@ class WakeRunner(
                 }
             } ?: emptyList()
         }
-        // 되돌리기용 원래 값: 시트 통풍을 읽지 못했으면 꺼짐(0)으로, 무드등 색을 읽지 못했으면 되돌리지 않는다
-        val original = HvacTargets(seatVent = targets.seatVent?.let { snap.now.seatVent ?: 0 }, ambientColor = targets.ambientColor?.let { snap.now.ambientColor })
+        // 되돌리기용 원래 값: 시트 통풍·핸들 열선을 읽지 못했으면 꺼짐(0)으로, 무드등 색을 읽지 못했으면 되돌리지 않는다
+        val original = HvacTargets(
+            seatVent = targets.seatVent?.let { snap.now.seatVent ?: 0 },
+            ambientColor = targets.ambientColor?.let { snap.now.ambientColor },
+            wheelHeat = targets.wheelHeat?.let { snap.now.wheelHeat ?: 0 },
+        )
         dispatch(WakeEvent.HvacApplied(id, results, targets, usable, base, ventOnly, original))
     }
 

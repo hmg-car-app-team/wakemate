@@ -10,18 +10,20 @@ data class HvacCaps(
     val fanMin: Int = 1, val fanMax: Int = 1, val tempMin: Float = 16f, val tempMax: Float = 32f,
     val seatVent: Boolean = false, val seatVentMax: Int = 3,
     val ambientColor: Boolean = false,
-) { val anyWritable: Boolean get() = recirc || fan || temp || seatVent || ambientColor }
+    /** 스티어링휠 열선(차량 전체 속성, 영역 없음). [wheelHeatMax] 는 capability 범위의 최댓값. */
+    val wheelHeat: Boolean = false, val wheelHeatMax: Int = 3,
+) { val anyWritable: Boolean get() = recirc || fan || temp || seatVent || ambientColor || wheelHeat }
 
 /** 현재 공조 값(읽기 결과). null = 모름. */
 data class HvacNow(
     val power: Boolean? = null, val recirc: Boolean? = null, val fan: Int? = null, val tempC: Float? = null,
-    val seatVent: Int? = null, val ambientColor: Int? = null,
+    val seatVent: Int? = null, val ambientColor: Int? = null, val wheelHeat: Int? = null,
 )
 
 /** 쓸 값. null 인 항목은 쓰지 않는다. */
 data class HvacTargets(
     val recirc: Boolean? = null, val fan: Int? = null, val tempC: Float? = null,
-    val seatVent: Int? = null, val ambientColor: Int? = null,
+    val seatVent: Int? = null, val ambientColor: Int? = null, val wheelHeat: Int? = null,
 ) {
     val kinds: List<String> get() = buildList {
         if (recirc != null) add("recirc")
@@ -29,6 +31,7 @@ data class HvacTargets(
         if (tempC != null) add("temp")
         if (seatVent != null) add("seat")
         if (ambientColor != null) add("ambient")
+        if (wheelHeat != null) add("wheel")
     }
     val isEmpty: Boolean get() = kinds.isEmpty()
 }
@@ -36,7 +39,7 @@ data class HvacTargets(
 /** 한 항목의 쓰기 결과. [code] 는 실패 시 오류 코드(없으면 null). */
 data class ItemResult(val kind: String, val ok: Boolean, val code: Int?)
 
-/** 2단계 물리 각성 계획(순수): 외기 순환, 풍량 80%, 설정 온도 -2℃, 운전석 시트 통풍 최대, 실내 앰비언트 경고색. 이미 충분하면 쓰지 않는다. */
+/** 2단계 물리 각성 계획(순수): 외기 순환, 풍량 80%, 설정 온도 -2℃, 운전석 시트 통풍 최대, 스티어링휠 열선 최대, 실내 앰비언트 경고색. 이미 충분하면 쓰지 않는다. */
 object HvacPlan {
     const val TEMP_DROP_C = 2f
     const val FAN_FRACTION = 0.8
@@ -64,7 +67,10 @@ object HvacPlan {
         val seatTarget = caps.seatVentMax.coerceAtLeast(1)
         val seatVent = if (caps.seatVent && (now.seatVent == null || now.seatVent < seatTarget)) seatTarget else null
         val ambient = if (caps.ambientColor && now.ambientColor != ALERT_AMBIENT_ARGB) ALERT_AMBIENT_ARGB else null
-        return HvacTargets(recirc, fan, temp, seatVent, ambient)
+        // 손에 닿는 열 자극: 차가운 공기(외기·통풍)와 대비되는 촉각 신호로 쓴다
+        val wheelTarget = caps.wheelHeatMax.coerceAtLeast(1)
+        val wheel = if (caps.wheelHeat && (now.wheelHeat == null || now.wheelHeat < wheelTarget)) wheelTarget else null
+        return HvacTargets(recirc, fan, temp, seatVent, ambient, wheel)
     }
 }
 
@@ -104,6 +110,7 @@ object HvacReport {
         "temp" -> "설정 온도를 낮췄어요"
         "seat" -> "시트 통풍을 켰어요"
         "ambient" -> "실내 조명을 경고색으로 바꿨어요"
+        "wheel" -> "핸들 열선을 켰어요"
         else -> "변경했어요"
     }
     /** 주제 조사(은/는)까지 포함한 항목 이름(받침에 맞춰 고정). */
@@ -113,6 +120,7 @@ object HvacReport {
         "temp" -> "설정 온도는"
         "seat" -> "시트 통풍은"
         "ambient" -> "실내 조명은"
+        "wheel" -> "핸들 열선은"
         else -> "${k}은(는)"
     }
 
@@ -130,9 +138,9 @@ object HvacReport {
         return parts.joinToString(". ")
     }
 
-    /** 시트·조명은 공조가 아니므로 주행 제한 문구를 따로 쓴다. */
+    /** 시트·조명·핸들 열선은 공조가 아니므로 주행 제한 문구를 따로 쓴다. */
     private fun reasonFor(kind: String, code: Int?): String =
-        if (code == HvacErrors.DRIVING_RESTRICTED && (kind == "seat" || kind == "ambient")) "주행 중에는 차량 정책상 앱이 바꿀 수 없어요" else HvacErrors.reason(code)
+        if (code == HvacErrors.DRIVING_RESTRICTED && (kind == "seat" || kind == "ambient" || kind == "wheel")) "주행 중에는 차량 정책상 앱이 바꿀 수 없어요" else HvacErrors.reason(code)
 
     /** 일부/전부 실패했는지. */
     fun hasFailure(results: List<ItemResult>) = results.any { !it.ok }

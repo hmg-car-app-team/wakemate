@@ -41,7 +41,12 @@ data class ShelterDataset(val notice: String, val sample: Boolean, val shelters:
 
 const val UNKNOWN_DATE = "미상"
 
-data class NearShelter(val shelter: Shelter, val distanceKm: Double)
+data class NearShelter(val shelter: Shelter, val distanceKm: Double) {
+    /** 쉼터 한 줄(배너·주행 화면 공통): 종류 이름 방향. 가상 샘플 데이터면 이름만. 출처 표기는 붙이지 않는다. */
+    fun line(sample: Boolean): String =
+        if (sample) shelter.name
+        else listOf(shelter.kindLabel, shelter.name, shelter.directionLabel).filter { it.isNotEmpty() }.joinToString(" ")
+}
 
 object ShelterRepo {
     /**

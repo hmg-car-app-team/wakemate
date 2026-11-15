@@ -43,6 +43,8 @@ import com.hmgcarapp.wakemate.navi.NaviController
 import com.hmgcarapp.wakemate.vehicle.PleosSteeringSource
 import com.hmgcarapp.wakemate.vehicle.PleosWakeHvac
 import com.hmgcarapp.wakemate.vehicle.SteeringSource
+import com.hmgcarapp.wakemate.vehicle.SwitchableWakeHvac
+import com.hmgcarapp.wakemate.vehicle.VirtualWakeHvac
 import com.hmgcarapp.wakemate.vehicle.WakeHvac
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -74,7 +76,7 @@ class AppController(
     private val context: Context,
     val signals: CarSignals,
     private val steering: SteeringSource = PleosSteeringSource(context),
-    private val hvac: WakeHvac = PleosWakeHvac(context),
+    private val hvac: WakeHvac = defaultHvac(context),
     private val speaker: Speaker = PleosSpeaker(context),
     private val listener: Listener = PleosListener(context),
     private val beeper: Beeper = ToneBeeper(),
@@ -337,9 +339,17 @@ class AppController(
         completeRest(RestRecord(wallClock(), min, 15, sim = true))
     }
     internal fun simReset() {
-        simPattern(null); simUpdate { SimInfo() }
+        simPattern(null); simVirtualCar(false); simUpdate { SimInfo() }
         driveClock.reset(); steerBuf.clear(); speedBuf.clear()
         dispatch(WakeEvent.Rested)
+    }
+
+    /** 시연: 가상 차량(공조·시트 통풍·핸들 열선·무드등이 쓰기를 받아 주는 차량)으로 바꾼다. debuggable 빌드에서만 배선된다. */
+    internal fun simVirtualCar(on: Boolean) {
+        val sw = hvac as? SwitchableWakeHvac ?: return
+        if (!debuggable) return
+        sw.setVirtual(on)
+        simUpdate { it.copy(virtualCar = on) }
     }
 
     // ---------- 저장/복원 ----------
@@ -434,3 +444,7 @@ class AppController(
         const val SIM_STEP_MS = 100L
     }
 }
+
+/** debuggable 빌드는 시연 때 가상 차량으로 바꿔 끼울 수 있게 감싼다(꺼져 있으면 실제 어댑터와 같다). release 는 실제 어댑터만. */
+private fun defaultHvac(context: Context): WakeHvac =
+    if (SimulationHub.isDebuggable(context)) SwitchableWakeHvac(PleosWakeHvac(context), VirtualWakeHvac()) else PleosWakeHvac(context)

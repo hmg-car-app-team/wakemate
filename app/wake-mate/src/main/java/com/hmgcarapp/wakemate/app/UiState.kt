@@ -13,8 +13,9 @@ enum class Page(val label: String) { STATUS("현황"), SHELTER("쉼터"), REPORT
 
 /** 시연(시뮬레이션) 주입 상태. null 이 아니면 화면에 '시연' 표시. */
 data class SimInfo(val pattern: SimPattern? = null, val minuteOfDay: Int? = null, val extraDriveMin: Int = 0, val extraRecircMin: Int = 0, val hubOn: Boolean = false,
-    /** stage/heard/rest/steer 직접 주입 여부. */ val injected: Boolean = false) {
-    val active: Boolean get() = pattern != null || minuteOfDay != null || extraDriveMin != 0 || extraRecircMin != 0 || hubOn || injected
+    /** stage/heard/rest/steer 직접 주입 여부. */ val injected: Boolean = false,
+    /** 가상 차량(시연용 차량 응답) 사용 여부. */ val virtualCar: Boolean = false) {
+    val active: Boolean get() = pattern != null || minuteOfDay != null || extraDriveMin != 0 || extraRecircMin != 0 || hubOn || injected || virtualCar
 }
 
 /** 화면에 보이는 모든 상태(컨트롤러가 단일 소유). 깨우기 소속 상태는 [WakeState]. */
